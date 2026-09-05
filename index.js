@@ -42,6 +42,8 @@ const API_PUBLIC_URL = (process.env.API_PUBLIC_URL || (process.env.RAILWAY_PUBLI
 const DISCORD_REDIRECT_URI = `${API_PUBLIC_URL}/auth/discord/callback`;
 
 
+const PANEL_ADMIN_DISCORD_ID = '1445069224899907709';
+
 // ===================== DATABASE ==============================
 
 const file = process.env.DATA_FILE || (process.env.RAILWAY_VOLUME_MOUNT_PATH ? `${process.env.RAILWAY_VOLUME_MOUNT_PATH}/turbo-db.json` : './turbo-db.json');
@@ -93,7 +95,7 @@ const b64=o=>Buffer.from(JSON.stringify(o)).toString('base64url');
 function signToken(user, ttl=7*24*3600){const payload=b64({...user,exp:Math.floor(Date.now()/1000)+ttl});const sig=crypto.createHmac('sha256',secret()).update(payload).digest('base64url');return `${payload}.${sig}`}
 function verifyToken(token){try{const [p,s]=String(token||'').split('.');const good=crypto.createHmac('sha256',secret()).update(p).digest('base64url');if(!crypto.timingSafeEqual(Buffer.from(s),Buffer.from(good)))return null;const d=JSON.parse(Buffer.from(p,'base64url').toString());if(d.exp<Date.now()/1000)return null;return d}catch{return null}}
 function auth(req,res,next){const token=(req.headers.authorization||'').replace(/^Bearer\s+/i,'');const user=verifyToken(token);if(!user)return res.status(401).json({error:'LOGIN_REQUIRED'});req.user=user;next()}
-function isAdmin(user){const ids=IDS.ADMIN_ROLE_IDS.filter(Boolean);return !!user?.roles?.some(r=>ids.includes(r))}
+function isAdmin(user){return String(user?.id||'')===PANEL_ADMIN_DISCORD_ID}
 function admin(req,res,next){if(!isAdmin(req.user))return res.status(403).json({error:'ADMIN_ONLY'});next()}
 
 // ===================== AI STORY WARNING =====================
@@ -495,6 +497,8 @@ app.post('/api/interviews/:slotId/book',auth,asyncRoute(async(req,res)=>{
   await notifyInterview(result.app,result.slot);
   res.json({ok:true,...result});
 }));
+
+
 
 app.get('/api/admin/state',auth,admin,asyncRoute(async(req,res)=>{res.json(await readDB())}));
 app.patch('/api/admin/settings',auth,admin,asyncRoute(async(req,res)=>{
