@@ -124,9 +124,27 @@ async function isReviewer(interaction){
   }catch{return false}
 }
 
-async function dm(userId,text){
-  if(!client?.isReady()) return;
-  try{const u=await client.users.fetch(userId);await u.send(text)}catch(e){console.warn('DM failed:',e.message)}
+async function dm(userId,payload){
+  if(!client?.isReady()) return false;
+  try{
+    const u=await client.users.fetch(userId);
+    await u.send(typeof payload==='string'?{content:payload}:payload);
+    return true;
+  }catch(e){
+    console.warn('DM failed:',e.message);
+    return false;
+  }
+}
+
+function turboDmEmbed({title,description,fields=[],colorValue=color,footer='Turbo RP • Roleplay'}){
+  return new EmbedBuilder()
+    .setColor(colorValue)
+    .setAuthor({name:'Turbo Application'})
+    .setTitle(title)
+    .setDescription(description||'')
+    .addFields(fields)
+    .setFooter({text:footer})
+    .setTimestamp();
 }
 
 async function role(userId,roleId,add=true){
@@ -168,7 +186,17 @@ async function postApplication(app){
 }
 
 async function notifyInterview(app,slot){
-  await dm(app.discordId,`📅 تم حجز موعد المقابلة الصوتية في Turbo RP\nالموعد: ${new Date(slot.at).toLocaleString('ar-EG')}\n${slot.note||''}`)
+  const when=new Date(slot.at).toLocaleString('ar-EG',{dateStyle:'full',timeStyle:'short'});
+  const embed=turboDmEmbed({
+    title:'📅 تم حجز المقابلة الصوتية',
+    description:'تم تثبيت موعد المقابلة الصوتية الخاصة بك في **Turbo RP**.',
+    fields:[
+      {name:'رقم التقديم',value:`#${app.number}`,inline:true},
+      {name:'الموعد',value:when,inline:false},
+      ...(slot.note?[{name:'ملاحظات',value:String(slot.note).slice(0,1024)}]:[])
+    ]
+  });
+  await dm(app.discordId,{embeds:[embed]});
 }
 
 async function markVoicePassed(userId,by='admin'){
@@ -183,7 +211,16 @@ async function markVoicePassed(userId,by='admin'){
   });
   if(app){
     await role(userId,IDS.ENTRY_ROLE_ID,true);
-    await dm(userId,'✅ تم قبولك في المقابلة الصوتية ومنحك تصريح الدخول إلى Turbo RP. أهلاً بيك!');
+    const embed=turboDmEmbed({
+      title:'✅ تم قبولك نهائيًا',
+      description:'مبروك! تم اجتياز المقابلة الصوتية بنجاح وتم منحك **تصريح الدخول** إلى Turbo RP.',
+      fields:[
+        {name:'الحالة',value:'مقبول نهائيًا',inline:true},
+        {name:'الخطوة التالية',value:'يمكنك الآن الدخول للسيرفر وبدء تجربتك في الرول بلاي.',inline:false}
+      ],
+      colorValue:0x22c55e
+    });
+    await dm(userId,{embeds:[embed]});
   }
   return app;
 }
@@ -197,20 +234,52 @@ async function startBot(){
     if(i.isButton()&&(i.customId.startsWith('accept:')||i.customId.startsWith('reject:'))){
       if(!(await isReviewer(i))) return i.reply({content:'❌ ليس لديك صلاحية مراجعة التقديمات.',ephemeral:true});
       const [action,id]=i.customId.split(':');
+
       if(action==='accept'){
+        // Acknowledge Discord immediately so the interaction never times out while
+        // we update the database, role and DM.
+        await i.deferUpdate();
+
         let app,changed=false;
         await mutate(db=>{
           app=db.applications.find(a=>a.id===id);
           if(app?.status==='pending'){
-            app.status='pre_accepted';app.reviewedAt=Date.now();app.reviewedBy=i.user.id;changed=true;
+            app.status='pre_accepted';
+            app.reviewedAt=Date.now();
+            app.reviewedBy=i.user.id;
+            changed=true;
             db.audit.push({at:Date.now(),by:i.user.id,action:'pre_accept',applicationId:id});
           }
         });
-        if(!app||!changed) return i.reply({content:'تمت مراجعة هذا الطلب بالفعل.',ephemeral:true});
-        await role(app.discordId,IDS.PRE_ACCEPTED_ROLE_ID,true);
-        await dm(app.discordId,`✅ تم قبول تقديمك مبدئيًا في Turbo RP (#${app.number}). ادخل الموقع وشاهد مواعيد المقابلة الصوتية واحجز الموعد المناسب.`);
-        await i.update({content:`✅ قبول مبدئي بواسطة <@${i.user.id}>`,components:[]});
+
+        if(!app||!changed){
+          return i.followUp({content:'⚠️ تمت مراجعة هذا الطلب بالفعل.',ephemeral:true});
+        }
+
+        // Remove buttons first. Role/DM failures must not make Discord show a timeout.
+        await i.editReply({content:`✅ قبول مبدئي بواسطة <@${i.user.id}>`,components:[]}).catch(()=>{});
+
+        let roleOk=true, dmOk=true;
+        try{ await role(app.discordId,IDS.PRE_ACCEPTED_ROLE_ID,true); }catch{ roleOk=false; }
+        const acceptEmbed=turboDmEmbed({
+          title:'✅ تم قبول تقديمك مبدئيًا',
+          description:'مبروك! تم قبول طلبك مبدئيًا في **Turbo RP**.',
+          fields:[
+            {name:'رقم التقديم',value:`#${app.number}`,inline:true},
+            {name:'الحالة',value:'مقبول مبدئيًا',inline:true},
+            {name:'الخطوة التالية',value:'ادخل الموقع واختر موعد المقابلة الصوتية المناسب لك.',inline:false}
+          ],
+          colorValue:0x22c55e
+        });
+        dmOk=await dm(app.discordId,{embeds:[acceptEmbed]});
+
+        await i.followUp({
+          content:`✅ تم قبول التقديم #${app.number} مبدئيًا.${roleOk?'':'\n⚠️ راجع صلاحية/ترتيب رول البوت.'}${dmOk?'':'\n⚠️ تعذر إرسال رسالة خاصة للمتقدم.'}`,
+          ephemeral:true
+        }).catch(()=>{});
       } else {
+        // showModal itself acknowledges the button interaction, so do it before
+        // any database/network work.
         const modal=new ModalBuilder().setCustomId(`rejectmodal:${id}`).setTitle('سبب الرفض');
         const inp=new TextInputBuilder().setCustomId('reason').setLabel('اكتب سبب الرفض').setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(500);
         modal.addComponents(new ActionRowBuilder().addComponents(inp));
@@ -218,24 +287,62 @@ async function startBot(){
       }
     } else if(i.isModalSubmit()&&i.customId.startsWith('rejectmodal:')){
       if(!(await isReviewer(i))) return i.reply({content:'❌ ليس لديك صلاحية مراجعة التقديمات.',ephemeral:true});
+
+      // Modal submissions also have Discord's short response deadline.
+      await i.deferReply({ephemeral:true});
+
       const id=i.customId.split(':')[1], reason=i.fields.getTextInputValue('reason').trim();
       let app,changed=false;
       await mutate(db=>{
         app=db.applications.find(a=>a.id===id);
         if(app?.status==='pending'){
-          app.status='rejected';app.reason=reason;app.reviewedAt=Date.now();app.reviewedBy=i.user.id;
-          app.cooldownUntil=Date.now()+12*3600*1000;changed=true;
+          app.status='rejected';
+          app.reason=reason;
+          app.reviewedAt=Date.now();
+          app.reviewedBy=i.user.id;
+          app.cooldownUntil=Date.now()+12*3600*1000;
+          changed=true;
           db.audit.push({at:Date.now(),by:i.user.id,action:'reject',applicationId:id,reason});
         }
       });
-      if(!app||!changed) return i.reply({content:'تمت مراجعة هذا الطلب بالفعل.',ephemeral:true});
-      await dm(app.discordId,`❌ تم رفض تقديمك في Turbo RP (#${app.number}).\nالسبب: ${reason}\nيمكنك التقديم مرة أخرى بعد 12 ساعة.`);
-      if(i.message) await i.message.edit({content:`❌ تم الرفض بواسطة <@${i.user.id}> — السبب: ${reason}`,components:[]}).catch(()=>{});
-      await i.reply({content:`تم رفض التقديم #${app.number} وإرسال السبب للمتقدم.`,ephemeral:true});
+
+      if(!app||!changed){
+        return i.editReply({content:'⚠️ تمت مراجعة هذا الطلب بالفعل.'});
+      }
+
+      // A modal submit does not reliably carry the original review message.
+      // Fetch the stored review message and disable its buttons explicitly.
+      if(app.reviewMessageId&&IDS.REVIEW_CHANNEL_ID){
+        try{
+          const ch=await client.channels.fetch(IDS.REVIEW_CHANNEL_ID);
+          if(ch?.isTextBased()){
+            const msg=await ch.messages.fetch(app.reviewMessageId);
+            await msg.edit({content:`❌ تم الرفض بواسطة <@${i.user.id}> — السبب: ${reason}`,components:[]});
+          }
+        }catch(e){ console.warn('Review message update failed:',e.message); }
+      }
+
+      const rejectEmbed=turboDmEmbed({
+        title:'❌ تم رفض التقديم',
+        description:'تمت مراجعة تقديمك في **Turbo RP** ولم يتم قبوله هذه المرة.',
+        fields:[
+          {name:'رقم التقديم',value:`#${app.number}`,inline:true},
+          {name:'الحالة',value:'مرفوض',inline:true},
+          {name:'سبب الرفض',value:reason.slice(0,1024),inline:false},
+          {name:'إعادة التقديم',value:'يمكنك التقديم مرة أخرى بعد **12 ساعة**.',inline:false}
+        ],
+        colorValue:0xef4444
+      });
+      const dmOk=await dm(app.discordId,{embeds:[rejectEmbed]});
+
+      await i.editReply({content:`✅ تم رفض التقديم #${app.number} وحفظ السبب.${dmOk?'':'\n⚠️ تعذر إرسال رسالة خاصة للمتقدم.'}`});
     }
   }catch(e){
     console.error('Discord interaction error:',e);
-    if(i.isRepliable()&&!i.replied&&!i.deferred) await i.reply({content:'حدث خطأ أثناء تنفيذ العملية.',ephemeral:true}).catch(()=>{});
+    if(!i.isRepliable()) return;
+    const payload={content:'❌ حدث خطأ أثناء تنفيذ العملية.',ephemeral:true};
+    if(i.deferred||i.replied) await i.followUp(payload).catch(()=>{});
+    else await i.reply(payload).catch(()=>{});
   }});
 
   await client.login(process.env.DISCORD_BOT_TOKEN);
