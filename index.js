@@ -21,6 +21,7 @@ const IDS = {
   REVIEW_CHANNEL_ID: '1522093061759438927',
   PRE_ACCEPTED_ROLE_ID: '1522093054377328734',
   ENTRY_ROLE_ID: '1522093054377328735',
+  MANAGER_USER_ID: '1445069224899907709',
 
   // حط كل رولات الإدارة اللي مسموح لها تراجع وتتحكم
   ADMIN_ROLE_IDS: [
@@ -37,12 +38,11 @@ const IDS = {
 // DATA_FILE               = مسار قاعدة البيانات (اختياري)
 // YOUTUBE_API_KEY         = اختياري لفحص لايف YouTube
 // TWITCH_CLIENT_ID / TWITCH_CLIENT_SECRET = اختياري لفحص Twitch
+// ADMIN_PANEL_PASSWORD     = باسورد لوحة التحكم بالموقع
 
 const API_PUBLIC_URL = (process.env.API_PUBLIC_URL || (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : 'http://localhost:3000')).replace(/\/$/,'');
 const DISCORD_REDIRECT_URI = `${API_PUBLIC_URL}/auth/discord/callback`;
 
-
-const PANEL_ADMIN_DISCORD_ID = '1445069224899907709';
 
 // ===================== DATABASE ==============================
 
@@ -57,6 +57,7 @@ const seed = {
   applications:[],
   creators:[],
   interviewSlots:[],
+  panelAdmins:[],
   audit:[]
 };
 
@@ -95,8 +96,12 @@ const b64=o=>Buffer.from(JSON.stringify(o)).toString('base64url');
 function signToken(user, ttl=7*24*3600){const payload=b64({...user,exp:Math.floor(Date.now()/1000)+ttl});const sig=crypto.createHmac('sha256',secret()).update(payload).digest('base64url');return `${payload}.${sig}`}
 function verifyToken(token){try{const [p,s]=String(token||'').split('.');const good=crypto.createHmac('sha256',secret()).update(p).digest('base64url');if(!crypto.timingSafeEqual(Buffer.from(s),Buffer.from(good)))return null;const d=JSON.parse(Buffer.from(p,'base64url').toString());if(d.exp<Date.now()/1000)return null;return d}catch{return null}}
 function auth(req,res,next){const token=(req.headers.authorization||'').replace(/^Bearer\s+/i,'');const user=verifyToken(token);if(!user)return res.status(401).json({error:'LOGIN_REQUIRED'});req.user=user;next()}
-function isAdmin(user){return String(user?.id||'')===PANEL_ADMIN_DISCORD_ID}
-function admin(req,res,next){if(!isAdmin(req.user))return res.status(403).json({error:'ADMIN_ONLY'});next()}
+function isManager(user){return String(user?.id||'')===String(IDS.MANAGER_USER_ID)}
+function hasRoleAdmin(user){const ids=IDS.ADMIN_ROLE_IDS.filter(Boolean);return !!user?.roles?.some(r=>ids.includes(r))}
+function isPanelAdmin(user,db){return !!db?.panelAdmins?.some(a=>String(a.discordId)===String(user?.id))}
+function isAdmin(user,db){if(user?.panelAdmin===true)return true;return isManager(user)||hasRoleAdmin(user)||isPanelAdmin(user,db)}
+async function admin(req,res,next){try{const db=await readDB();if(!isAdmin(req.user,db))return res.status(403).json({error:'ADMIN_ONLY'});req.db=db;next()}catch(e){next(e)}}
+async function manager(req,res,next){if(!isManager(req.user))return res.status(403).json({error:'MANAGER_ONLY'});next()}
 
 // ===================== AI STORY WARNING =====================
 function inspectStory(text=''){
@@ -119,8 +124,10 @@ const adminRoleIds=()=>new Set(IDS.ADMIN_ROLE_IDS.filter(Boolean));
 async function isReviewer(interaction){
   try{
     if(interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return true;
+    if(String(interaction.user?.id||'')===String(IDS.MANAGER_USER_ID)) return true;
+    const db=await readDB();
+    if(db.panelAdmins?.some(a=>String(a.discordId)===String(interaction.user?.id))) return true;
     const ids=adminRoleIds();
-    if(!ids.size) return false;
     const roles=interaction.member?.roles?.cache ? [...interaction.member.roles.cache.keys()] : [];
     return roles.some(id=>ids.has(id));
   }catch{return false}
@@ -204,7 +211,7 @@ async function notifyInterview(app,slot){
 async function markVoicePassed(userId,by='admin'){
   let app;
   await mutate(db=>{
-    app=[...db.applications].reverse().find(a=>a.discordId===userId&&a.status==='pre_accepted');
+    app=[...db.applications].reverse().find(a=>a.discordId===userId&&['pre_accepted','voice_review'].includes(a.status));
     if(app){
       app.status='voice_passed';
       app.voicePassedAt=Date.now();
@@ -448,11 +455,11 @@ app.get('/api/me',auth,asyncRoute(async(req,res)=>{
   const latest=apps[0]||null;
   let canApply=db.settings.applicationsOpen,waitMs=0;
   if(latest){
-    if(['pending','pre_accepted','voice_passed'].includes(latest.status))canApply=false;
-    if(latest.status==='rejected'&&latest.cooldownUntil>Date.now()){canApply=false;waitMs=latest.cooldownUntil-Date.now()}
+    if(['pending','pre_accepted','voice_review','voice_passed','banned'].includes(latest.status))canApply=false;
+    if(['rejected','voice_rejected'].includes(latest.status)&&latest.cooldownUntil>Date.now()){canApply=false;waitMs=latest.cooldownUntil-Date.now()}
   }
   const booked=latest?.interviewSlotId?db.interviewSlots.find(s=>s.id===latest.interviewSlotId):null;
-  res.json({user:req.user,isAdmin:isAdmin(req.user),latest,canApply,waitMs,booked});
+  res.json({user:req.user,isAdmin:isAdmin(req.user,db),isManager:isManager(req.user),latest,canApply,waitMs,booked});
 }));
 
 app.post('/api/applications',auth,asyncRoute(async(req,res)=>{
@@ -466,8 +473,8 @@ app.post('/api/applications',auth,asyncRoute(async(req,res)=>{
   await mutate(db=>{
     if(!db.settings.applicationsOpen)throw new Error('CLOSED');
     const latest=[...db.applications].reverse().find(a=>a.discordId===req.user.id);
-    if(latest&&['pending','pre_accepted','voice_passed'].includes(latest.status))throw new Error('BLOCKED');
-    if(latest?.status==='rejected'&&latest.cooldownUntil>Date.now())throw new Error('COOLDOWN');
+    if(latest&&['pending','pre_accepted','voice_review','voice_passed','banned'].includes(latest.status))throw new Error(latest.status==='banned'?'BANNED':'BLOCKED');
+    if(latest&&['rejected','voice_rejected'].includes(latest.status)&&latest.cooldownUntil>Date.now())throw new Error('COOLDOWN');
     db.counters.application=(db.counters.application||0)+1;
     created={
       id:crypto.randomUUID(),number:db.counters.application,discordId:req.user.id,discordTag:req.user.username,
@@ -499,8 +506,18 @@ app.post('/api/interviews/:slotId/book',auth,asyncRoute(async(req,res)=>{
 }));
 
 
+app.post('/api/admin/password-login',asyncRoute(async(req,res)=>{
+  const expected=String(process.env.ADMIN_PANEL_PASSWORD||'');
+  const given=String(req.body?.password||'');
+  if(!expected) return res.status(503).json({error:'ADMIN_PASSWORD_NOT_CONFIGURED'});
+  const a=Buffer.from(given),b=Buffer.from(expected);
+  const ok=a.length===b.length && crypto.timingSafeEqual(a,b);
+  if(!ok) return res.status(401).json({error:'INVALID_ADMIN_PASSWORD'});
+  const token=signToken({id:'panel-password',username:'Turbo Admin',roles:[],panelAdmin:true},6*3600);
+  res.json({ok:true,token,expiresIn:6*3600});
+}));
 
-app.get('/api/admin/state',auth,admin,asyncRoute(async(req,res)=>{res.json(await readDB())}));
+app.get('/api/admin/state',auth,admin,asyncRoute(async(req,res)=>{const db=await readDB();res.json({...db,viewer:{id:req.user.id,isManager:isManager(req.user)}})}));
 app.patch('/api/admin/settings',auth,admin,asyncRoute(async(req,res)=>{
   const {applicationsOpen,aboutText,rules}=req.body;
   await mutate(db=>{
@@ -511,6 +528,102 @@ app.patch('/api/admin/settings',auth,admin,asyncRoute(async(req,res)=>{
   });
   res.json({ok:true});
 }));
+
+app.post('/api/admin/panel-admins',auth,manager,asyncRoute(async(req,res)=>{
+  const discordId=String(req.body?.discordId||'').trim();
+  if(!/^\d{16,22}$/.test(discordId))return res.status(400).json({error:'INVALID_DISCORD_ID'});
+  if(discordId===String(IDS.MANAGER_USER_ID))return res.status(400).json({error:'ALREADY_MANAGER'});
+  let entry;
+  await mutate(db=>{
+    db.panelAdmins=Array.isArray(db.panelAdmins)?db.panelAdmins:[];
+    if(db.panelAdmins.some(a=>String(a.discordId)===discordId))throw new Error('ADMIN_EXISTS');
+    entry={discordId,addedAt:Date.now(),addedBy:req.user.id};
+    db.panelAdmins.push(entry);
+    db.audit.push({at:Date.now(),by:req.user.id,action:'panel_admin_add',discordId});
+  });
+  res.json({ok:true,admin:entry});
+}));
+app.delete('/api/admin/panel-admins/:discordId',auth,manager,asyncRoute(async(req,res)=>{
+  const discordId=String(req.params.discordId||'');
+  await mutate(db=>{
+    db.panelAdmins=(db.panelAdmins||[]).filter(a=>String(a.discordId)!==discordId);
+    db.audit.push({at:Date.now(),by:req.user.id,action:'panel_admin_remove',discordId});
+  });
+  res.json({ok:true});
+}));
+
+async function updateReviewMessage(appRecord,text){
+  if(!client?.isReady()||!appRecord?.reviewMessageId||!IDS.REVIEW_CHANNEL_ID)return;
+  try{
+    const ch=await client.channels.fetch(IDS.REVIEW_CHANNEL_ID);
+    if(!ch?.isTextBased())return;
+    const msg=await ch.messages.fetch(appRecord.reviewMessageId);
+    await msg.edit({content:text,components:[]});
+  }catch(e){console.warn('Review message update failed:',e.message)}
+}
+
+app.post('/api/admin/applications/:id/action',auth,admin,asyncRoute(async(req,res)=>{
+  const action=String(req.body?.action||'').trim();
+  const reason=String(req.body?.reason||'').trim().slice(0,500);
+  const allowed=['pre_accept','reject','voice_review','voice_pass','voice_reject','ban','reset'];
+  if(!allowed.includes(action))return res.status(400).json({error:'INVALID_ACTION'});
+  let a,previous;
+  await mutate(db=>{
+    a=db.applications.find(x=>x.id===req.params.id);
+    if(!a)throw new Error('APPLICATION_NOT_FOUND');
+    previous=a.status;
+    const now=Date.now();
+    if(action==='pre_accept'){
+      if(a.status!=='pending')throw new Error('INVALID_STAGE');
+      a.status='pre_accepted';a.reason='';a.reviewedAt=now;a.reviewedBy=req.user.id;a.cooldownUntil=0;
+    }else if(action==='reject'){
+      if(a.status!=='pending')throw new Error('INVALID_STAGE');
+      a.status='rejected';a.reason=reason||'لم يتم تحديد سبب';a.reviewedAt=now;a.reviewedBy=req.user.id;a.cooldownUntil=now+12*3600*1000;
+    }else if(action==='voice_review'){
+      if(!['pre_accepted','voice_review'].includes(a.status))throw new Error('INVALID_STAGE');
+      a.status='voice_review';a.voiceReviewedAt=now;a.voiceReviewedBy=req.user.id;
+    }else if(action==='voice_pass'){
+      if(!['pre_accepted','voice_review'].includes(a.status))throw new Error('INVALID_STAGE');
+      a.status='voice_passed';a.voicePassedAt=now;a.voiceReviewedBy=req.user.id;a.reason='';a.cooldownUntil=0;
+    }else if(action==='voice_reject'){
+      if(!['pre_accepted','voice_review'].includes(a.status))throw new Error('INVALID_STAGE');
+      a.status='voice_rejected';a.reason=reason||'';a.voiceReviewedAt=now;a.voiceReviewedBy=req.user.id;a.cooldownUntil=now+12*3600*1000;
+      for(const slot of db.interviewSlots){if(slot.bookedBy===a.discordId){slot.bookedBy=null;slot.applicationId=null}}
+      a.interviewSlotId=null;
+    }else if(action==='ban'){
+      a.status='banned';a.reason=reason||'حظر دائم من التقديم';a.bannedAt=now;a.bannedBy=req.user.id;a.cooldownUntil=0;
+      for(const slot of db.interviewSlots){if(slot.bookedBy===a.discordId){slot.bookedBy=null;slot.applicationId=null}}
+      a.interviewSlotId=null;
+    }else if(action==='reset'){
+      a.status='reset';a.reason='';a.cooldownUntil=0;a.interviewSlotId=null;
+      for(const slot of db.interviewSlots){if(slot.bookedBy===a.discordId){slot.bookedBy=null;slot.applicationId=null}}
+    }
+    db.audit.push({at:now,by:req.user.id,action:`application_${action}`,applicationId:a.id,from:previous,to:a.status,reason});
+  });
+
+  if(action==='pre_accept'){
+    await role(a.discordId,IDS.PRE_ACCEPTED_ROLE_ID,true);
+    await dm(a.discordId,{embeds:[turboDmEmbed({title:'✅ تم قبول تقديمك مبدئيًا',description:'تم قبول طلبك مبدئيًا في **Turbo RP**.',fields:[{name:'رقم التقديم',value:`#${a.number}`,inline:true},{name:'الخطوة التالية',value:'ادخل الموقع واختر موعد المقابلة الصوتية.',inline:false}],colorValue:0x22c55e})]});
+    await updateReviewMessage(a,`✅ قبول مبدئي من لوحة التحكم بواسطة <@${req.user.id}>`);
+  }else if(action==='reject'){
+    await dm(a.discordId,{embeds:[turboDmEmbed({title:'❌ تم رفض التقديم',description:'تمت مراجعة تقديمك ولم يتم قبوله هذه المرة.',fields:[{name:'السبب',value:a.reason||'لم يتم تحديد سبب'},{name:'إعادة التقديم',value:'بعد 12 ساعة'}],colorValue:0xef4444})]});
+    await updateReviewMessage(a,`❌ رفض من لوحة التحكم بواسطة <@${req.user.id}> — ${a.reason||'بدون سبب'}`);
+  }else if(action==='voice_review'){
+    await dm(a.discordId,{embeds:[turboDmEmbed({title:'🕒 المقابلة قيد المراجعة',description:'تم وضع نتيجة المقابلة الصوتية قيد المراجعة من الإدارة.'})]});
+  }else if(action==='voice_pass'){
+    await role(a.discordId,IDS.ENTRY_ROLE_ID,true);
+    await dm(a.discordId,{embeds:[turboDmEmbed({title:'✅ تم قبولك نهائيًا',description:'تم اجتياز المقابلة الصوتية ومنحك تصريح الدخول.',colorValue:0x22c55e})]});
+  }else if(action==='voice_reject'){
+    await role(a.discordId,IDS.PRE_ACCEPTED_ROLE_ID,false);
+    await dm(a.discordId,{embeds:[turboDmEmbed({title:'❌ لم تجتز المقابلة الصوتية',description:a.reason?`السبب: ${a.reason}`:'لم يتم تحديد سبب.',fields:[{name:'إعادة التقديم',value:'بعد 12 ساعة'}],colorValue:0xef4444})]});
+  }else if(action==='ban'){
+    await role(a.discordId,IDS.PRE_ACCEPTED_ROLE_ID,false);
+    await role(a.discordId,IDS.ENTRY_ROLE_ID,false);
+    await dm(a.discordId,{embeds:[turboDmEmbed({title:'⛔ حظر دائم من التقديم',description:a.reason||'تم حظرك بشكل دائم من التقديم.',colorValue:0x991b1b})]});
+  }
+  res.json({ok:true,application:a});
+}));
+
 app.post('/api/admin/creators',auth,admin,asyncRoute(async(req,res)=>{
   let c;
   await mutate(db=>{
@@ -569,7 +682,7 @@ async function checkLives(){
 app.use(express.static('public'));
 app.use((err,req,res,next)=>{
   console.error(err);
-  const map={CLOSED:403,BLOCKED:409,COOLDOWN:429,NOT_PRE_ACCEPTED:403,ALREADY_BOOKED:409,SLOT_UNAVAILABLE:409,BOOKED:409,CORS_NOT_ALLOWED:403,CREATOR_INVALID:400};
+  const map={CLOSED:403,BLOCKED:409,BANNED:403,COOLDOWN:429,NOT_PRE_ACCEPTED:403,ALREADY_BOOKED:409,SLOT_UNAVAILABLE:409,BOOKED:409,CORS_NOT_ALLOWED:403,CREATOR_INVALID:400,APPLICATION_NOT_FOUND:404,INVALID_STAGE:409,ADMIN_EXISTS:409};
   res.status(map[err.message]||500).json({error:err.message||'SERVER_ERROR'});
 });
 
