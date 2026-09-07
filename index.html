@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#05080d">
+  <title>Turbo RP — Roleplay</title>
+  <meta name="description" content="Turbo RP — سيرفر رول بلاي عربي.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css?v=12.0">
+</head>
+<body>
+  <div class="bg-grid"></div><div class="glow glow-a"></div><div class="glow glow-b"></div>
+
+  <header class="topbar">
+    <a class="brand" href="#home">
+      <span class="brand-logo"><img src="turbo-logo.png?v=9" alt="Turbo"></span>
+      <span class="brand-name"><b>TURBO</b><small>ROLEPLAY</small></span>
+    </a>
+    <nav id="nav">
+      <a href="#home">الرئيسية</a><a href="#about">من نحن</a><a href="#creators">صناع المحتوى</a><a href="#rules">القوانين</a><a href="#apply">التقديم</a><a href="#status">حالة التقديم</a>
+    </nav>
+    <div class="top-actions">
+      <button id="menu" class="menu-btn" type="button">☰</button>
+      <a id="loginBtn" class="discord-btn" href="https://botsturbo-production.up.railway.app/auth/discord">
+        <span class="discord-icon">D</span><span>تسجيل دخول Discord</span>
+      </a>
+      <button id="adminSecretBtn" class="admin-secret-btn" type="button" aria-label="لوحة التحكم" title="لوحة التحكم">⚙</button>
+    </div>
+  </header>
+
+  <a class="turbo-banner" href="https://discord.gg/tTDwVP5sE" target="_blank" rel="noopener" aria-label="دخول ديسكورد Turbo Roleplay">
+    <img src="turbo-banner.gif?v=9" alt="Turbo Roleplay Discord Banner">
+  </a>
+
+  <main>
+    <section id="home" class="hero">
+      <div class="hero-copy">
+        <div class="eyebrow"><span></span>TURBO ROLEPLAY</div>
+        <h1>مدينة تعيش فيها<br><em>قصتك أنت.</em></h1>
+        <p>رول بلاي عربي مبني على السيناريوهات، الشخصيات والتفاعل الحقيقي. كل قرار منك يغيّر اللي هيحصل بعده.</p>
+        <div class="hero-actions hero-actions-discord">
+          <a class="btn primary discord-community-btn" href="https://discord.gg/tTDwVP5sE" target="_blank" rel="noopener"><span class="btn-ico">◉</span> دخول الديسكورد</a>
+          <a class="btn ghost admin-contact-btn" href="https://discord.gg/tTDwVP5sE" target="_blank" rel="noopener"><span class="btn-ico">♟</span> التواصل مع الإدارة</a>
+        </div>
+        <div class="server-state"><i></i><span id="applyState">جاري الاتصال بـ Turbo...</span></div>
+      </div>
+      <div class="hero-visual" id="turboTiltCard">
+        <div class="tilt-glare" aria-hidden="true"></div>
+        <div class="visual-head tilt-layer layer-head"><span>SERVER</span><b>TURBO CITY</b><span>ONLINE</span></div>
+        <div class="turbo-core tilt-layer layer-core"><div class="core-ring"></div><div class="core-text"><img class="core-logo" src="turbo-logo.png?v=9" alt="Turbo"><small>TURBO</small></div></div>
+        <div class="visual-stats tilt-layer layer-stats"><div><strong>24/7</strong><span>مجتمع فعال</span></div><div><strong>RP</strong><span>Roleplay</span></div><div><strong>∞</strong><span>سيناريوهات</span></div></div>
+      </div>
+
+      <div class="rules-gateway" id="rulesDragLauncher">
+        <div class="rules-gateway-top">
+          <div class="rules-gateway-index">03</div>
+          <div class="rules-gateway-copy">
+            <span class="drag-kicker">TURBO / SERVER RULES</span>
+            <strong>القوانين مش مجرد صفحة.<br><em>هي بداية شخصيتك.</em></strong>
+            <small>اسحب المفتاح للنهاية لفتح قوانين المدينة</small>
+          </div>
+          <div class="rules-gateway-orbit" aria-hidden="true"><i></i><b>RULES</b></div>
+        </div>
+        <div class="rules-marquee" aria-hidden="true">
+          <div>RDM • VDM • META GAMING • POWER GAMING • FEAR RP • NLR • ROLEPLAY • TURBO CITY • RDM • VDM • META GAMING • POWER GAMING • FEAR RP • NLR • ROLEPLAY • TURBO CITY •</div>
+        </div>
+        <div class="rules-drag-track" id="rulesDragTrack" dir="ltr" role="slider" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" tabindex="0">
+          <div class="rules-drag-fill" id="rulesDragFill"></div>
+          <div class="drag-flow" aria-hidden="true"><span>›</span><span>›</span><span>›</span><span>›</span></div>
+          <div class="drag-track-label"><span>اسحب</span><b>لفتح القوانين</b></div>
+          <button class="rules-drag-thumb" id="rulesDragThumb" type="button" aria-label="اسحب لفتح قوانين السيرفر"><span>↠</span></button>
+        </div>
+      </div>
+    </section>
+
+    <section id="about" class="section reveal-section">
+      <div class="section-head"><span>01</span><div><small>ABOUT TURBO</small><h2>من نحن</h2></div></div>
+      <div class="about-grid"><article class="card big"><span class="blue-label">TURBO ROLEPLAY</span><p id="aboutText">Turbo RP سيرفر رول بلاي عربي يهتم بجودة السيناريو والتفاعل بين اللاعبين.</p></article><article class="card"><b>سيناريوهات للجميع</b><p>مش لازم تستنى حدث. المدينة معمولة عشان كل لاعب يبني قصة ويتفاعل مع باقي الشخصيات.</p></article><article class="card"><b>نظام تقديم واضح</b><p>تابع تقديمك من الموقع، وشوف القرار وموعد المقابلة من نفس حساب Discord.</p></article></div>
+    </section>
+
+    <section id="creators" class="section reveal-section">
+      <div class="section-head"><span>02</span><div><small>CREATORS</small><h2>صناع المحتوى</h2></div><p>مين فاتح لايف دلوقتي؟</p></div>
+      <div id="creatorGrid" class="creator-grid"><div class="loading-box"></div></div>
+    </section>
+
+    <section id="rules" class="section rules-locked" aria-hidden="true">
+      <div class="section-head"><span>03</span><div><small>SERVER RULES</small><h2>قوانين السيرفر</h2></div><p>اقرأها قبل التقديم.</p></div>
+      <div id="rulesList" class="rules-grid"><div class="loading-box"></div></div>
+    </section>
+
+    <section id="apply" class="section reveal-section">
+      <div class="section-head"><span>04</span><div><small>APPLICATION</small><h2>التقديم</h2></div><p>سجل بحساب Discord وابدأ.</p></div>
+      <div id="applyBox" class="card form-shell"><div class="loading-box tall"></div></div>
+    </section>
+
+    <section id="status" class="section reveal-section">
+      <div class="section-head"><span>05</span><div><small>APPLICATION STATUS</small><h2>حالة التقديم</h2></div><p>القرار، السبب والمقابلة.</p></div>
+      <div id="statusBox" class="card form-shell"><div class="loading-box"></div></div>
+    </section>
+
+    <section id="admin" class="section hidden"><div class="section-head"><span>⚙</span><div><small>CONTROL PANEL</small><h2>لوحة التحكم</h2></div></div><div id="adminBox"></div></section>
+
+    
+  </main>
+
+  <footer><div class="brand footer-brand"><span class="brand-logo small"><img src="turbo-logo.png?v=9" alt="Turbo"></span><span class="brand-name"><b>TURBO</b><small>ROLEPLAY</small></span></div><span>© 2026 Turbo Roleplay</span></footer>
+  <div id="setupBanner" class="setup-banner hidden"></div><div id="toast"></div>
+  <div id="turboActionLoader" class="turbo-action-loader" aria-hidden="true">
+    <div class="turbo-loader-scan"></div>
+    <div class="turbo-loader-corners"><span></span><span></span><span></span><span></span></div>
+    <div class="turbo-loader-center">
+      <div class="turbo-loader-mark"><div class="turbo-loader-ring"></div><div class="turbo-loader-t">T</div></div>
+      <div class="turbo-loader-title">TURBO <b>RP</b></div>
+      <div class="turbo-loader-sub">LOADING • ROLEPLAY EXPERIENCE</div>
+      <div class="turbo-loader-line"></div>
+    </div>
+  </div>
+
+  <script src="config.js?v=5.1"></script><script src="app.js?v=12.0"></script>
+</body>
+</html>

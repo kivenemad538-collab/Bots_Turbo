@@ -21,7 +21,7 @@ const IDS = {
   REVIEW_CHANNEL_ID: '1522093061759438927',
   PRE_ACCEPTED_ROLE_ID: '1522093054377328734',
   ENTRY_ROLE_ID: '1522093054377328735',
-  MANAGER_USER_ID: '1445069224899907709',
+  OWNER_USER_ID: '1445069224899907709',
 
   // حط كل رولات الإدارة اللي مسموح لها تراجع وتتحكم
   ADMIN_ROLE_IDS: [
@@ -45,6 +45,9 @@ const DISCORD_REDIRECT_URI = `${API_PUBLIC_URL}/auth/discord/callback`;
 
 
 // ===================== DATABASE ==============================
+// التخزين الأساسي يقدر يكون PostgreSQL خارجي عن Railway عن طريق DATABASE_URL.
+// ده الأفضل لو هتنقل/تمسح مشروع Railway لأن البيانات تفضل خارج المشروع.
+// لو DATABASE_URL مش موجود، النظام يرجع لملف turbo-db.json كحل احتياطي.
 
 const file = process.env.DATA_FILE || (process.env.RAILWAY_VOLUME_MOUNT_PATH ? `${process.env.RAILWAY_VOLUME_MOUNT_PATH}/turbo-db.json` : './turbo-db.json');
 const seed = {
@@ -62,21 +65,81 @@ const seed = {
 };
 
 let queue = Promise.resolve();
+let pgPool = null;
+let pgReady = false;
 
-async function readDB(){
-  try {
-    return JSON.parse(await fs.readFile(file,'utf8'));
-  } catch {
-    await writeDB(structuredClone(seed));
-    return structuredClone(seed);
-  }
+async function getPgPool(){
+  if(!process.env.DATABASE_URL) return null;
+  if(pgPool) return pgPool;
+  const { Pool } = await import('pg');
+  pgPool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: process.env.PGSSLMODE === 'disable' ? false : { rejectUnauthorized:false },
+    max: 3,
+    idleTimeoutMillis: 30000
+  });
+  return pgPool;
 }
 
-async function writeDB(db){
+async function ensurePg(){
+  const pool=await getPgPool();
+  if(!pool) return null;
+  if(!pgReady){
+    await pool.query(`CREATE TABLE IF NOT EXISTS turbo_state (
+      id TEXT PRIMARY KEY,
+      data JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`);
+    pgReady=true;
+  }
+  return pool;
+}
+
+async function readLocalFile(){
+  try { return JSON.parse(await fs.readFile(file,'utf8')); }
+  catch { return null; }
+}
+
+async function writeLocalFile(db){
   await fs.mkdir(path.dirname(file),{recursive:true});
   const tmp = `${file}.tmp`;
   await fs.writeFile(tmp,JSON.stringify(db,null,2),'utf8');
   await fs.rename(tmp,file);
+}
+
+async function readDB(){
+  const pool=await ensurePg();
+  if(pool){
+    const result=await pool.query('SELECT data FROM turbo_state WHERE id=$1',['main']);
+    if(result.rows[0]?.data) return result.rows[0].data;
+    // أول تشغيل على قاعدة خارجية: لو فيه ملف قديم على نفس السيرفر، هيتنقل تلقائيًا.
+    const old=await readLocalFile();
+    const initial=old || structuredClone(seed);
+    await pool.query(
+      `INSERT INTO turbo_state (id,data,updated_at) VALUES ($1,$2::jsonb,NOW())
+       ON CONFLICT (id) DO UPDATE SET data=EXCLUDED.data, updated_at=NOW()`,
+      ['main',JSON.stringify(initial)]
+    );
+    return initial;
+  }
+  const local=await readLocalFile();
+  if(local) return local;
+  const initial=structuredClone(seed);
+  await writeLocalFile(initial);
+  return initial;
+}
+
+async function writeDB(db){
+  const pool=await ensurePg();
+  if(pool){
+    await pool.query(
+      `INSERT INTO turbo_state (id,data,updated_at) VALUES ($1,$2::jsonb,NOW())
+       ON CONFLICT (id) DO UPDATE SET data=EXCLUDED.data, updated_at=NOW()`,
+      ['main',JSON.stringify(db)]
+    );
+    return;
+  }
+  await writeLocalFile(db);
 }
 
 function mutate(fn){
@@ -90,18 +153,39 @@ function mutate(fn){
   return job;
 }
 
+function validateImportedDB(db){
+  return db && typeof db==='object' && !Array.isArray(db)
+    && db.settings && typeof db.settings==='object'
+    && db.counters && typeof db.counters==='object'
+    && Array.isArray(db.applications)
+    && Array.isArray(db.creators)
+    && Array.isArray(db.interviewSlots)
+    && Array.isArray(db.panelAdmins)
+    && Array.isArray(db.audit);
+}
+
 // ===================== AUTH =================================
 const secret=()=>process.env.SESSION_SECRET||'dev-secret-change-me';
 const b64=o=>Buffer.from(JSON.stringify(o)).toString('base64url');
 function signToken(user, ttl=7*24*3600){const payload=b64({...user,exp:Math.floor(Date.now()/1000)+ttl});const sig=crypto.createHmac('sha256',secret()).update(payload).digest('base64url');return `${payload}.${sig}`}
 function verifyToken(token){try{const [p,s]=String(token||'').split('.');const good=crypto.createHmac('sha256',secret()).update(p).digest('base64url');if(!crypto.timingSafeEqual(Buffer.from(s),Buffer.from(good)))return null;const d=JSON.parse(Buffer.from(p,'base64url').toString());if(d.exp<Date.now()/1000)return null;return d}catch{return null}}
 function auth(req,res,next){const token=(req.headers.authorization||'').replace(/^Bearer\s+/i,'');const user=verifyToken(token);if(!user)return res.status(401).json({error:'LOGIN_REQUIRED'});req.user=user;next()}
-function isManager(user){return String(user?.id||'')===String(IDS.MANAGER_USER_ID)}
+function isOwner(user){return String(user?.id||'')===String(IDS.OWNER_USER_ID)}
 function hasRoleAdmin(user){const ids=IDS.ADMIN_ROLE_IDS.filter(Boolean);return !!user?.roles?.some(r=>ids.includes(r))}
-function isPanelAdmin(user,db){return !!db?.panelAdmins?.some(a=>String(a.discordId)===String(user?.id))}
-function isAdmin(user,db){if(user?.panelAdmin===true)return true;return isManager(user)||hasRoleAdmin(user)||isPanelAdmin(user,db)}
+function panelStaffEntry(user,db){return db?.panelAdmins?.find(a=>String(a.discordId)===String(user?.id))}
+function panelStaffRole(user,db){
+  if(isOwner(user))return 'owner';
+  if(user?.panelAdmin===true)return 'admin';
+  const entry=panelStaffEntry(user,db);
+  if(entry)return entry.role==='manager'?'manager':'admin';
+  if(hasRoleAdmin(user))return 'admin';
+  return null;
+}
+function isManager(user,db){const r=panelStaffRole(user,db);return r==='owner'||r==='manager'}
+function isPanelAdmin(user,db){return !!panelStaffEntry(user,db)}
+function isAdmin(user,db){return !!panelStaffRole(user,db)}
 async function admin(req,res,next){try{const db=await readDB();if(!isAdmin(req.user,db))return res.status(403).json({error:'ADMIN_ONLY'});req.db=db;next()}catch(e){next(e)}}
-async function manager(req,res,next){if(!isManager(req.user))return res.status(403).json({error:'MANAGER_ONLY'});next()}
+async function owner(req,res,next){if(!isOwner(req.user))return res.status(403).json({error:'OWNER_ONLY'});next()}
 
 // ===================== AI STORY WARNING =====================
 function inspectStory(text=''){
@@ -118,13 +202,44 @@ function inspectStory(text=''){
 // ===================== DISCORD BOT ==========================
 
 let client;
+
+async function fetchDiscordProfile(discordId){
+  const id=String(discordId||'').trim();
+  if(!/^\d{16,22}$/.test(id))return {discordId:id,username:'Unknown',globalName:'Unknown',avatarUrl:'https://cdn.discordapp.com/embed/avatars/0.png'};
+  try{
+    if(client?.isReady()){
+      const u=await client.users.fetch(id);
+      return {
+        discordId:id,
+        username:u.username||'Unknown',
+        globalName:u.globalName||u.username||'Unknown',
+        avatarUrl:u.displayAvatarURL({extension:'png',size:128})
+      };
+    }
+    const token=process.env.DISCORD_BOT_TOKEN;
+    if(token){
+      const r=await fetch(`https://discord.com/api/v10/users/${id}`,{headers:{Authorization:`Bot ${token}`}});
+      if(r.ok){
+        const x=await r.json();
+        return {
+          discordId:id,
+          username:x.username||'Unknown',
+          globalName:x.global_name||x.username||'Unknown',
+          avatarUrl:x.avatar?`https://cdn.discordapp.com/avatars/${id}/${x.avatar}.png?size=128`:'https://cdn.discordapp.com/embed/avatars/0.png'
+        };
+      }
+    }
+  }catch(e){console.warn('Discord profile lookup failed:',id,e.message)}
+  return {discordId:id,username:'Unknown',globalName:'Unknown',avatarUrl:'https://cdn.discordapp.com/embed/avatars/0.png'};
+}
+
 const color=0x168cff;
 const adminRoleIds=()=>new Set(IDS.ADMIN_ROLE_IDS.filter(Boolean));
 
 async function isReviewer(interaction){
   try{
     if(interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return true;
-    if(String(interaction.user?.id||'')===String(IDS.MANAGER_USER_ID)) return true;
+    if(String(interaction.user?.id||'')===String(IDS.OWNER_USER_ID)) return true;
     const db=await readDB();
     if(db.panelAdmins?.some(a=>String(a.discordId)===String(interaction.user?.id))) return true;
     const ids=adminRoleIds();
@@ -211,7 +326,7 @@ async function notifyInterview(app,slot){
 async function markVoicePassed(userId,by='admin'){
   let app;
   await mutate(db=>{
-    app=[...db.applications].reverse().find(a=>a.discordId===userId&&['pre_accepted','voice_review'].includes(a.status));
+    app=[...db.applications].reverse().find(a=>a.discordId===userId&&a.status==='pre_accepted');
     if(app){
       app.status='voice_passed';
       app.voicePassedAt=Date.now();
@@ -459,7 +574,7 @@ app.get('/api/me',auth,asyncRoute(async(req,res)=>{
     if(['rejected','voice_rejected'].includes(latest.status)&&latest.cooldownUntil>Date.now()){canApply=false;waitMs=latest.cooldownUntil-Date.now()}
   }
   const booked=latest?.interviewSlotId?db.interviewSlots.find(s=>s.id===latest.interviewSlotId):null;
-  res.json({user:req.user,isAdmin:isAdmin(req.user,db),isManager:isManager(req.user),latest,canApply,waitMs,booked});
+  res.json({user:req.user,isAdmin:isAdmin(req.user,db),isOwner:isOwner(req.user),isManager:isManager(req.user,db),staffRole:panelStaffRole(req.user,db),latest,canApply,waitMs,booked});
 }));
 
 app.post('/api/applications',auth,asyncRoute(async(req,res)=>{
@@ -517,7 +632,45 @@ app.post('/api/admin/password-login',asyncRoute(async(req,res)=>{
   res.json({ok:true,token,expiresIn:6*3600});
 }));
 
-app.get('/api/admin/state',auth,admin,asyncRoute(async(req,res)=>{const db=await readDB();res.json({...db,viewer:{id:req.user.id,isManager:isManager(req.user)}})}));
+app.get('/api/admin/state',auth,admin,asyncRoute(async(req,res)=>{
+  const db=await readDB();
+  const panelAdmins=await Promise.all((db.panelAdmins||[]).map(async entry=>{
+    const profile=(entry.username&&entry.avatarUrl)?entry:({...entry,...await fetchDiscordProfile(entry.discordId)});
+    return {...profile,role:entry.role==='manager'?'manager':'admin'};
+  }));
+  const ownerProfile=await fetchDiscordProfile(IDS.OWNER_USER_ID);
+  const staffDirectory=[
+    {...ownerProfile,discordId:String(IDS.OWNER_USER_ID),role:'owner'},
+    ...panelAdmins
+  ];
+  const role=panelStaffRole(req.user,db)||'admin';
+  res.json({...db,panelAdmins,staffDirectory,viewer:{id:req.user.id,role,isOwner:role==='owner',isManager:role==='owner'||role==='manager'}});
+}));
+
+// ===== BACKUP / RESTORE (OWNER ONLY) =====
+// استخدم Export قبل حذف مشروع Railway القديم، وبعدها Import في المشروع الجديد.
+app.get('/api/admin/backup/export',auth,owner,asyncRoute(async(req,res)=>{
+  const db=await readDB();
+  const payload={format:'turbo-rp-backup-v1',exportedAt:Date.now(),data:db};
+  const stamp=new Date().toISOString().replace(/[:.]/g,'-');
+  res.setHeader('Content-Type','application/json; charset=utf-8');
+  res.setHeader('Content-Disposition',`attachment; filename="turbo-backup-${stamp}.json"`);
+  res.send(JSON.stringify(payload,null,2));
+}));
+
+app.post('/api/admin/backup/import',auth,owner,asyncRoute(async(req,res)=>{
+  const incoming=req.body?.format==='turbo-rp-backup-v1' ? req.body.data : req.body;
+  if(!validateImportedDB(incoming)) return res.status(400).json({error:'INVALID_BACKUP'});
+  const restored=structuredClone(incoming);
+  restored.audit.push({at:Date.now(),by:req.user.id,action:'backup_import'});
+  await writeDB(restored);
+  res.json({ok:true,applications:restored.applications.length,panelAdmins:restored.panelAdmins.length});
+}));
+
+app.get('/api/admin/storage-status',auth,owner,asyncRoute(async(req,res)=>{
+  res.json({ok:true,mode:process.env.DATABASE_URL?'postgres':'local-file',external:!!process.env.DATABASE_URL});
+}));
+
 app.patch('/api/admin/settings',auth,admin,asyncRoute(async(req,res)=>{
   const {applicationsOpen,aboutText,rules}=req.body;
   await mutate(db=>{
@@ -529,25 +682,27 @@ app.patch('/api/admin/settings',auth,admin,asyncRoute(async(req,res)=>{
   res.json({ok:true});
 }));
 
-app.post('/api/admin/panel-admins',auth,manager,asyncRoute(async(req,res)=>{
+app.post('/api/admin/panel-admins',auth,owner,asyncRoute(async(req,res)=>{
   const discordId=String(req.body?.discordId||'').trim();
+  const staffRole=req.body?.role==='manager'?'manager':'admin';
   if(!/^\d{16,22}$/.test(discordId))return res.status(400).json({error:'INVALID_DISCORD_ID'});
-  if(discordId===String(IDS.MANAGER_USER_ID))return res.status(400).json({error:'ALREADY_MANAGER'});
+  if(discordId===String(IDS.OWNER_USER_ID))return res.status(400).json({error:'ALREADY_OWNER'});
+  const profile=await fetchDiscordProfile(discordId);
   let entry;
   await mutate(db=>{
     db.panelAdmins=Array.isArray(db.panelAdmins)?db.panelAdmins:[];
     if(db.panelAdmins.some(a=>String(a.discordId)===discordId))throw new Error('ADMIN_EXISTS');
-    entry={discordId,addedAt:Date.now(),addedBy:req.user.id};
+    entry={discordId,role:staffRole,username:profile.username,globalName:profile.globalName,avatarUrl:profile.avatarUrl,addedAt:Date.now(),addedBy:req.user.id};
     db.panelAdmins.push(entry);
-    db.audit.push({at:Date.now(),by:req.user.id,action:'panel_admin_add',discordId});
+    db.audit.push({at:Date.now(),by:req.user.id,action:'panel_staff_add',discordId,role:staffRole});
   });
   res.json({ok:true,admin:entry});
 }));
-app.delete('/api/admin/panel-admins/:discordId',auth,manager,asyncRoute(async(req,res)=>{
+app.delete('/api/admin/panel-admins/:discordId',auth,owner,asyncRoute(async(req,res)=>{
   const discordId=String(req.params.discordId||'');
   await mutate(db=>{
     db.panelAdmins=(db.panelAdmins||[]).filter(a=>String(a.discordId)!==discordId);
-    db.audit.push({at:Date.now(),by:req.user.id,action:'panel_admin_remove',discordId});
+    db.audit.push({at:Date.now(),by:req.user.id,action:'panel_staff_remove',discordId});
   });
   res.json({ok:true});
 }));
@@ -682,7 +837,7 @@ async function checkLives(){
 app.use(express.static('public'));
 app.use((err,req,res,next)=>{
   console.error(err);
-  const map={CLOSED:403,BLOCKED:409,BANNED:403,COOLDOWN:429,NOT_PRE_ACCEPTED:403,ALREADY_BOOKED:409,SLOT_UNAVAILABLE:409,BOOKED:409,CORS_NOT_ALLOWED:403,CREATOR_INVALID:400,APPLICATION_NOT_FOUND:404,INVALID_STAGE:409,ADMIN_EXISTS:409};
+  const map={CLOSED:403,BLOCKED:409,COOLDOWN:429,NOT_PRE_ACCEPTED:403,ALREADY_BOOKED:409,SLOT_UNAVAILABLE:409,BOOKED:409,CORS_NOT_ALLOWED:403,CREATOR_INVALID:400};
   res.status(map[err.message]||500).json({error:err.message||'SERVER_ERROR'});
 });
 
