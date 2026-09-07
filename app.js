@@ -120,7 +120,13 @@ async function api(path,opt={}){
 }
 function consumeToken(){
   const h=new URLSearchParams(location.hash.slice(1));
-  if(h.get('token')){token=h.get('token');localStorage.setItem('turbo_token',token);history.replaceState(null,'',location.pathname+location.search+'#home')}
+  if(h.get('token')){token=h.get('token');localStorage.setItem('turbo_token',token);history.replaceState(null,'',location.pathname+location.search+'#home');return}
+  const loginError=h.get('login_error');
+  if(loginError){
+    const msg=loginError==='discord_temporarily_unavailable'?'Discord رجّع استجابة مؤقتة غير صالحة. جرّب تسجيل الدخول مرة أخرى.':loginError==='discord_oauth_failed'?'تعذر تسجيل الدخول بـ Discord. راجع Client Secret و Redirect URL في Railway/Discord Developer Portal.':'تعذر قراءة حساب Discord.';
+    history.replaceState(null,'',location.pathname+location.search+'#home');
+    setTimeout(()=>toast(msg),250);
+  }
 }
 function statusText(s){return({pending:'قيد المراجعة',pre_accepted:'مقبول مبدئيًا',voice_review:'قيد مراجعة المقابلة',voice_passed:'مقبول نهائيًا — تصريح الدخول',rejected:'مرفوض',voice_rejected:'مرفوض في المقابلة الصوتية',banned:'محظور نهائيًا',reset:'مسموح بإعادة التقديم'})[s]||s}
 
@@ -278,18 +284,21 @@ async function renderAdmin(){
   adminState=await api('/api/admin/state');
   const st=adminState;
   const viewerLabel=staffRoleText(st.viewer?.role||'admin');
-  const ownerControls=st.viewer?.isOwner?`<div class="card manager-only-card">
-      <div class="manager-badge">OWNER ONLY</div>
+  const canManageStaff=!!st.viewer?.isManager;
+  const canManageManagers=!!st.viewer?.isOwner;
+  const manageableStaff=(st.panelAdmins||[]).filter(a=>canManageManagers || a.role!=='manager');
+  const staffControls=canManageStaff?`<div class="card manager-only-card">
+      <div class="manager-badge">${canManageManagers?'OWNER':'MANAGER'}</div>
       <h3>إدارة طاقم لوحة التحكم</h3>
-      <p>ضيف Manager أو Admin عن طريق Discord User ID. بيانات الحساب هتظهر تلقائيًا من Discord.</p>
+      <p>${canManageManagers?'ضيف Manager أو Admin':'ضيف Admin'} عن طريق Discord User ID. بيانات الحساب هتظهر تلقائيًا من Discord.</p>
       <form id="panelAdminForm" class="inline-admin-form staff-add-form">
         <input name="discordId" inputmode="numeric" placeholder="Discord User ID" required>
-        <select name="role" required><option value="admin">Admin</option><option value="manager">Manager</option></select>
+        ${canManageManagers?'<select name="role" required><option value="admin">Admin</option><option value="manager">Manager</option></select>':'<input type="hidden" name="role" value="admin">'}
         <button class="smallbtn" type="submit">إضافة</button>
       </form>
-      <div class="staff-manage-list">${(st.panelAdmins||[]).map(a=>staffCard(a,true)).join('')||'<div class="notice">لا يوجد Manager أو Admin مضاف من الموقع.</div>'}</div>
-    </div>
-    <div class="card manager-only-card">
+      <div class="staff-manage-list">${manageableStaff.map(a=>staffCard(a,true)).join('')||'<div class="notice">لا يوجد Admin مضاف.</div>'}</div>
+    </div>`:'';
+  const ownerControls=st.viewer?.isOwner?`<div class="card manager-only-card">
       <div class="manager-badge">DATA SAFE</div>
       <h3>نسخة احتياطية</h3>
       <p>نزّل كل بيانات التقديمات والإدارة قبل حذف أو نقل Railway. تقدر ترفع نفس الملف في المشروع الجديد.</p>
@@ -299,7 +308,7 @@ async function renderAdmin(){
   $('#adminBox').innerHTML=`<div class="admin-dashboard">
     <div class="admin-topline"><div><span>TURBO CONTROL</span><h3>لوحة التحكم</h3></div><div class="admin-viewer">${viewerLabel}</div></div>
     <div class="admin-summary"><div class="admin-stat"><b>${st.applications.length}</b><span>كل التقديمات</span></div><div class="admin-stat"><b>${st.applications.filter(a=>a.status==='pending').length}</b><span>قيد المراجعة</span></div><div class="admin-stat"><b>${st.applications.filter(a=>['pre_accepted','voice_review'].includes(a.status)).length}</b><span>المرحلة الثانية</span></div><div class="admin-stat"><b>${st.applications.filter(a=>a.status==='voice_passed').length}</b><span>مقبولين نهائيًا</span></div></div>
-    <div class="admin-control-grid"><div class="card admin-settings-card"><h3>حالة التقديم</h3><p>الحالة الحالية: <b>${st.settings.applicationsOpen?'مفتوح':'مغلق'}</b></p><button class="${st.settings.applicationsOpen?'danger':'btn primary'}" onclick="toggleApps(${!st.settings.applicationsOpen})">${st.settings.applicationsOpen?'قفل التقديم':'فتح التقديم'}</button></div>${ownerControls}</div>
+    <div class="admin-control-grid"><div class="card admin-settings-card"><h3>حالة التقديم</h3><p>الحالة الحالية: <b>${st.settings.applicationsOpen?'مفتوح':'مغلق'}</b></p><button class="${st.settings.applicationsOpen?'danger':'btn primary'}" onclick="toggleApps(${!st.settings.applicationsOpen})">${st.settings.applicationsOpen?'قفل التقديم':'فتح التقديم'}</button></div>${staffControls}${ownerControls}</div>
     <div class="card applications-card"><div class="applications-toolbar"><div><span>APPLICATION REVIEW</span><h3>مراجعة التقديمات</h3></div><div class="application-search"><input id="applicationSearch" placeholder="ابحث بالاسم أو Discord ID أو رقم التقديم" oninput="filterApplications()"><span>⌕</span></div></div><div class="application-filters"><button class="application-filter-btn active" data-filter="all" onclick="setApplicationFilter('all')">الكل</button><button class="application-filter-btn" data-filter="review" onclick="setApplicationFilter('review')">قيد المراجعة</button><button class="application-filter-btn" data-filter="accepted" onclick="setApplicationFilter('accepted')">المقبولين</button><button class="application-filter-btn" data-filter="rejected" onclick="setApplicationFilter('rejected')">المرفوضين / المحظورين</button></div><div id="applicationList" class="application-list"></div></div>
     <div class="admin-grid"><div class="card"><h3>إضافة صانع محتوى</h3><form id="creatorForm" class="form-grid"><div class="field"><input name="name" placeholder="الاسم" required></div><div class="field"><input name="order" type="number" placeholder="الترتيب" value="1"></div><div class="field full"><input name="image" placeholder="لينك الصورة" required></div><div class="field full"><input name="url" placeholder="لينك الصفحة" required></div><div class="field"><select name="platform"><option value="youtube">YouTube</option><option value="twitch">Twitch</option><option value="other">Other</option></select></div><div class="field"><input name="platformId" placeholder="Channel ID / Twitch login"></div><button class="btn primary" type="submit">إضافة</button></form><div class="list">${st.creators.map(c=>`<div class="item"><span>${esc(c.name)} ${c.isLive?'🔴':''}</span><button class="danger" onclick="delCreator('${c.id}')">حذف</button></div>`).join('')}</div></div><div class="card"><h3>مواعيد المقابلات</h3><form id="slotForm"><div class="field"><input name="at" type="datetime-local" required></div><div class="field"><input name="note" placeholder="ملاحظة / روم المقابلة"></div><br><button class="btn primary" id="addSlotBtn" type="submit">إضافة موعد</button></form><div class="list">${st.interviewSlots.map(s=>`<div class="item"><span>${new Date(s.at).toLocaleString('ar-EG')} ${s.bookedBy?'• محجوز':''}</span>${!s.bookedBy?`<button class="danger" onclick="delSlot('${s.id}')">حذف</button>`:''}</div>`).join('')}</div></div></div>
     <div id="applicationReview" class="application-review hidden"></div>
@@ -311,7 +320,7 @@ async function renderAdmin(){
   </div>`;
   filterApplications();
   $('#creatorForm').onsubmit=addCreator;$('#slotForm').onsubmit=addSlot;
-  if(st.viewer?.isOwner)$('#panelAdminForm').onsubmit=addPanelAdmin;
+  if(st.viewer?.isManager && $('#panelAdminForm'))$('#panelAdminForm').onsubmit=addPanelAdmin;
 }
 async function addPanelAdmin(e){
   e.preventDefault();

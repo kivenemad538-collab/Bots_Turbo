@@ -21,6 +21,9 @@ const IDS = {
   REVIEW_CHANNEL_ID: '1522093061759438927',
   PRE_ACCEPTED_ROLE_ID: '1522093054377328734',
   ENTRY_ROLE_ID: '1522093054377328735',
+  VOICE_REVIEW_ROLE_ID: '1539984535582941325',
+  VOICE_REJECT_ROLE_A_ID: '1530597019180339281',
+  VOICE_REJECT_ROLE_B_ID: '1530597216111169586',
   OWNER_USER_ID: '1445069224899907709',
 
   // حط كل رولات الإدارة اللي مسموح لها تراجع وتتحكم
@@ -188,16 +191,11 @@ async function admin(req,res,next){try{const db=await readDB();if(!isAdmin(req.u
 async function owner(req,res,next){if(!isOwner(req.user))return res.status(403).json({error:'OWNER_ONLY'});next()}
 async function managerOrOwner(req,res,next){try{const db=req.db||await readDB();const role=panelStaffRole(req.user,db);if(role!=='owner'&&role!=='manager')return res.status(403).json({error:'MANAGER_ONLY'});req.db=db;req.staffRole=role;next()}catch(e){next(e)}}
 
-// ===================== AI STORY WARNING =====================
+// ===================== STORY REVIEW =========================
+// لا نعرض نسبة "ذكاء اصطناعي" لأن النص وحده لا يسمح بقياس موثوق.
 function inspectStory(text=''){
- const t=text.trim(); let score=0; const reasons=[];
- if(t.length>900){score+=15;reasons.push('القصة طويلة ومنظمة بشكل غير معتاد')}
- const formal=['علاوة على ذلك','ومن الجدير بالذكر','في نهاية المطاف','بشكل عام','من ناحية أخرى','يسعى إلى','حيث إن'];
- const hits=formal.filter(x=>t.includes(x)).length;if(hits>=2){score+=25;reasons.push('استخدام عبارات رسمية متكررة')}
- const sentences=t.split(/[.!؟\n]+/).filter(Boolean); if(sentences.length>7){const lens=sentences.map(s=>s.trim().length);const avg=lens.reduce((a,b)=>a+b,0)/lens.length;const dev=Math.sqrt(lens.reduce((a,b)=>a+(b-avg)**2,0)/lens.length);if(dev<25){score+=20;reasons.push('إيقاع الجمل متقارب جدًا')}}
- if(!/[،,.!?؟]/.test(t)&&t.length>400){score-=10}
- if(/أنا|كنت|عندي|اتولدت|كبرت/.test(t))score-=10;
- score=Math.max(0,Math.min(100,score));return {score,label:score>=45?'اشتباه مرتفع':'اشتباه منخفض',warning:'هذا فحص احتمالي فقط وليس دليلًا قاطعًا.',reasons};
+ const t=String(text||'').trim();
+ return {score:null,label:'مراجعة يدوية',warning:'راجع القصة ومحتواها يدويًا. لا يتم إصدار نسبة AI تلقائية.',reasons:[],length:t.length};
 }
 
 // ===================== DISCORD BOT ==========================
@@ -299,7 +297,7 @@ async function postApplication(app){
     {name:'Discord',value:app.discordTag||app.discordId,inline:true},
     {name:'قصة الشخصية',value:app.story.slice(0,1000)},
     ...app.answers.map((a,i)=>({name:`س${i+1}: ${a.q}`.slice(0,256),value:(a.a||'—').slice(0,900)})),
-    {name:'فحص القصة',value:`${app.ai.label} — ${app.ai.score}%\n${app.ai.warning}`.slice(0,1024)}
+    {name:'مراجعة القصة',value:'مراجعة يدوية — لا يتم عرض نسبة AI غير موثوقة.'.slice(0,1024)}
   ).setFooter({text:`Application ID: ${app.id}`}).setTimestamp();
 
   const row=new ActionRowBuilder().addComponents(
@@ -327,7 +325,7 @@ async function notifyInterview(app,slot){
 async function markVoicePassed(userId,by='admin'){
   let app;
   await mutate(db=>{
-    app=[...db.applications].reverse().find(a=>a.discordId===userId&&['pre_accepted','voice_review'].includes(a.status));
+    app=[...db.applications].reverse().find(a=>a.discordId===userId&&a.status==='pre_accepted');
     if(app){
       app.status='voice_passed';
       app.voicePassedAt=Date.now();
@@ -335,6 +333,10 @@ async function markVoicePassed(userId,by='admin'){
     }
   });
   if(app){
+    await role(userId,IDS.PRE_ACCEPTED_ROLE_ID,false);
+    await role(userId,IDS.VOICE_REVIEW_ROLE_ID,false);
+    await role(userId,IDS.VOICE_REJECT_ROLE_A_ID,false);
+    await role(userId,IDS.VOICE_REJECT_ROLE_B_ID,false);
     await role(userId,IDS.ENTRY_ROLE_ID,true);
     const embed=turboDmEmbed({
       title:'✅ تم قبولك نهائيًا',
@@ -554,12 +556,21 @@ app.get('/auth/discord/callback',asyncRoute(async(req,res)=>{
     grant_type:'authorization_code',code:String(req.query.code),
     redirect_uri:DISCORD_REDIRECT_URI
   });
-  const tr=await fetch('https://discord.com/api/oauth2/token',{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body});
-  const tok=await tr.json();
-  if(!tok.access_token) throw new Error('DISCORD_OAUTH_TOKEN_FAILED');
-  const ur=await fetch('https://discord.com/api/users/@me',{headers:{authorization:`Bearer ${tok.access_token}`}});
-  const u=await ur.json();
-  if(!u.id) throw new Error('DISCORD_USER_FAILED');
+  const tr=await fetch('https://discord.com/api/oauth2/token',{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded','accept':'application/json'},body:body.toString()});
+  const tokenText=await tr.text();
+  let tok={};
+  try{ tok=JSON.parse(tokenText); }catch{
+    console.error('Discord OAuth token returned non-JSON:',tr.status,tokenText.slice(0,180));
+    return res.redirect(`${frontendUrl}/#login_error=discord_temporarily_unavailable`);
+  }
+  if(!tr.ok||!tok.access_token){
+    console.error('Discord OAuth token failed:',tr.status,tok.error||tok.error_description||'unknown');
+    return res.redirect(`${frontendUrl}/#login_error=discord_oauth_failed`);
+  }
+  const ur=await fetch('https://discord.com/api/users/@me',{headers:{authorization:`Bearer ${tok.access_token}`,accept:'application/json'}});
+  const userText=await ur.text();
+  let u={}; try{u=JSON.parse(userText)}catch{console.error('Discord user returned non-JSON:',ur.status,userText.slice(0,180));return res.redirect(`${frontendUrl}/#login_error=discord_temporarily_unavailable`)}
+  if(!ur.ok||!u.id) return res.redirect(`${frontendUrl}/#login_error=discord_user_failed`);
   const roles=await getMemberRoles(u.id);
   const token=signToken({id:u.id,username:u.username,globalName:u.global_name,avatar:u.avatar,roles});
   res.redirect(`${frontendUrl}/#token=${encodeURIComponent(token)}`);
@@ -601,6 +612,7 @@ app.post('/api/applications',auth,asyncRoute(async(req,res)=>{
     db.applications.push(created);
     db.audit.push({at:Date.now(),by:req.user.id,action:'application_create',applicationId:created.id});
   });
+  await role(created.discordId,IDS.VOICE_REVIEW_ROLE_ID,true);
   await postApplication(created);
   res.json({ok:true,application:created});
 }));
@@ -763,22 +775,40 @@ app.post('/api/admin/applications/:id/action',auth,admin,asyncRoute(async(req,re
   });
 
   if(action==='pre_accept'){
+    await role(a.discordId,IDS.VOICE_REVIEW_ROLE_ID,false);
     await role(a.discordId,IDS.PRE_ACCEPTED_ROLE_ID,true);
     await dm(a.discordId,{embeds:[turboDmEmbed({title:'✅ تم قبول تقديمك مبدئيًا',description:'تم قبول طلبك مبدئيًا في **Turbo RP**.',fields:[{name:'رقم التقديم',value:`#${a.number}`,inline:true},{name:'الخطوة التالية',value:'ادخل الموقع واختر موعد المقابلة الصوتية.',inline:false}],colorValue:0x22c55e})]});
     await updateReviewMessage(a,`✅ قبول مبدئي من لوحة التحكم بواسطة <@${req.user.id}>`);
   }else if(action==='reject'){
+    await role(a.discordId,IDS.VOICE_REVIEW_ROLE_ID,false);
     await dm(a.discordId,{embeds:[turboDmEmbed({title:'❌ تم رفض التقديم',description:'تمت مراجعة تقديمك ولم يتم قبوله هذه المرة.',fields:[{name:'السبب',value:a.reason||'لم يتم تحديد سبب'},{name:'إعادة التقديم',value:'بعد 12 ساعة'}],colorValue:0xef4444})]});
     await updateReviewMessage(a,`❌ رفض من لوحة التحكم بواسطة <@${req.user.id}> — ${a.reason||'بدون سبب'}`);
   }else if(action==='voice_review'){
+    await role(a.discordId,IDS.VOICE_REVIEW_ROLE_ID,true);
     await dm(a.discordId,{embeds:[turboDmEmbed({title:'🕒 المقابلة قيد المراجعة',description:'تم وضع نتيجة المقابلة الصوتية قيد المراجعة من الإدارة.'})]});
   }else if(action==='voice_pass'){
+    await role(a.discordId,IDS.PRE_ACCEPTED_ROLE_ID,false);
+    await role(a.discordId,IDS.VOICE_REVIEW_ROLE_ID,false);
+    await role(a.discordId,IDS.VOICE_REJECT_ROLE_A_ID,false);
+    await role(a.discordId,IDS.VOICE_REJECT_ROLE_B_ID,false);
     await role(a.discordId,IDS.ENTRY_ROLE_ID,true);
     await dm(a.discordId,{embeds:[turboDmEmbed({title:'✅ تم قبولك نهائيًا',description:'تم اجتياز المقابلة الصوتية ومنحك تصريح الدخول.',colorValue:0x22c55e})]});
   }else if(action==='voice_reject'){
     await role(a.discordId,IDS.PRE_ACCEPTED_ROLE_ID,false);
+    await role(a.discordId,IDS.VOICE_REVIEW_ROLE_ID,false);
+    // الرفض الصوتي يتناوب A ثم B ثم A ثم B... مع إزالة رول الرفض السابق.
+    const dbNow=await readDB();
+    const rejects=dbNow.applications.filter(x=>x.discordId===a.discordId&&x.status==='voice_rejected').length;
+    const odd=rejects%2===1;
+    await role(a.discordId,IDS.VOICE_REJECT_ROLE_A_ID,false);
+    await role(a.discordId,IDS.VOICE_REJECT_ROLE_B_ID,false);
+    await role(a.discordId,odd?IDS.VOICE_REJECT_ROLE_A_ID:IDS.VOICE_REJECT_ROLE_B_ID,true);
     await dm(a.discordId,{embeds:[turboDmEmbed({title:'❌ لم تجتز المقابلة الصوتية',description:a.reason?`السبب: ${a.reason}`:'لم يتم تحديد سبب.',fields:[{name:'إعادة التقديم',value:'بعد 12 ساعة'}],colorValue:0xef4444})]});
   }else if(action==='ban'){
     await role(a.discordId,IDS.PRE_ACCEPTED_ROLE_ID,false);
+    await role(a.discordId,IDS.VOICE_REVIEW_ROLE_ID,false);
+    await role(a.discordId,IDS.VOICE_REJECT_ROLE_A_ID,false);
+    await role(a.discordId,IDS.VOICE_REJECT_ROLE_B_ID,false);
     await role(a.discordId,IDS.ENTRY_ROLE_ID,false);
     await dm(a.discordId,{embeds:[turboDmEmbed({title:'⛔ حظر دائم من التقديم',description:a.reason||'تم حظرك بشكل دائم من التقديم.',colorValue:0x991b1b})]});
   }
@@ -843,7 +873,7 @@ async function checkLives(){
 app.use(express.static('public'));
 app.use((err,req,res,next)=>{
   console.error(err);
-  const map={CLOSED:403,BLOCKED:409,BANNED:403,COOLDOWN:429,NOT_PRE_ACCEPTED:403,ALREADY_BOOKED:409,SLOT_UNAVAILABLE:409,BOOKED:409,CORS_NOT_ALLOWED:403,CREATOR_INVALID:400,APPLICATION_NOT_FOUND:404,INVALID_STAGE:409,ADMIN_EXISTS:409};
+  const map={CLOSED:403,BLOCKED:409,COOLDOWN:429,NOT_PRE_ACCEPTED:403,ALREADY_BOOKED:409,SLOT_UNAVAILABLE:409,BOOKED:409,CORS_NOT_ALLOWED:403,CREATOR_INVALID:400};
   res.status(map[err.message]||500).json({error:err.message||'SERVER_ERROR'});
 });
 
