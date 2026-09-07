@@ -186,6 +186,7 @@ function isPanelAdmin(user,db){return !!panelStaffEntry(user,db)}
 function isAdmin(user,db){return !!panelStaffRole(user,db)}
 async function admin(req,res,next){try{const db=await readDB();if(!isAdmin(req.user,db))return res.status(403).json({error:'ADMIN_ONLY'});req.db=db;next()}catch(e){next(e)}}
 async function owner(req,res,next){if(!isOwner(req.user))return res.status(403).json({error:'OWNER_ONLY'});next()}
+async function managerOrOwner(req,res,next){try{const db=req.db||await readDB();const role=panelStaffRole(req.user,db);if(role!=='owner'&&role!=='manager')return res.status(403).json({error:'MANAGER_ONLY'});req.db=db;req.staffRole=role;next()}catch(e){next(e)}}
 
 // ===================== AI STORY WARNING =====================
 function inspectStory(text=''){
@@ -326,7 +327,7 @@ async function notifyInterview(app,slot){
 async function markVoicePassed(userId,by='admin'){
   let app;
   await mutate(db=>{
-    app=[...db.applications].reverse().find(a=>a.discordId===userId&&a.status==='pre_accepted');
+    app=[...db.applications].reverse().find(a=>a.discordId===userId&&['pre_accepted','voice_review'].includes(a.status));
     if(app){
       app.status='voice_passed';
       app.voicePassedAt=Date.now();
@@ -682,9 +683,11 @@ app.patch('/api/admin/settings',auth,admin,asyncRoute(async(req,res)=>{
   res.json({ok:true});
 }));
 
-app.post('/api/admin/panel-admins',auth,owner,asyncRoute(async(req,res)=>{
+app.post('/api/admin/panel-admins',auth,managerOrOwner,asyncRoute(async(req,res)=>{
   const discordId=String(req.body?.discordId||'').trim();
-  const staffRole=req.body?.role==='manager'?'manager':'admin';
+  const requestedRole=req.body?.role==='manager'?'manager':'admin';
+  if(req.staffRole!=='owner' && requestedRole==='manager') return res.status(403).json({error:'OWNER_ONLY_FOR_MANAGER'});
+  const staffRole=req.staffRole==='owner'?requestedRole:'admin';
   if(!/^\d{16,22}$/.test(discordId))return res.status(400).json({error:'INVALID_DISCORD_ID'});
   if(discordId===String(IDS.OWNER_USER_ID))return res.status(400).json({error:'ALREADY_OWNER'});
   const profile=await fetchDiscordProfile(discordId);
@@ -698,8 +701,11 @@ app.post('/api/admin/panel-admins',auth,owner,asyncRoute(async(req,res)=>{
   });
   res.json({ok:true,admin:entry});
 }));
-app.delete('/api/admin/panel-admins/:discordId',auth,owner,asyncRoute(async(req,res)=>{
+app.delete('/api/admin/panel-admins/:discordId',auth,managerOrOwner,asyncRoute(async(req,res)=>{
   const discordId=String(req.params.discordId||'');
+  const current=(req.db?.panelAdmins||[]).find(a=>String(a.discordId)===discordId);
+  if(!current)return res.status(404).json({error:'STAFF_NOT_FOUND'});
+  if(req.staffRole!=='owner' && current.role==='manager')return res.status(403).json({error:'OWNER_ONLY_FOR_MANAGER'});
   await mutate(db=>{
     db.panelAdmins=(db.panelAdmins||[]).filter(a=>String(a.discordId)!==discordId);
     db.audit.push({at:Date.now(),by:req.user.id,action:'panel_staff_remove',discordId});
@@ -837,7 +843,7 @@ async function checkLives(){
 app.use(express.static('public'));
 app.use((err,req,res,next)=>{
   console.error(err);
-  const map={CLOSED:403,BLOCKED:409,COOLDOWN:429,NOT_PRE_ACCEPTED:403,ALREADY_BOOKED:409,SLOT_UNAVAILABLE:409,BOOKED:409,CORS_NOT_ALLOWED:403,CREATOR_INVALID:400};
+  const map={CLOSED:403,BLOCKED:409,BANNED:403,COOLDOWN:429,NOT_PRE_ACCEPTED:403,ALREADY_BOOKED:409,SLOT_UNAVAILABLE:409,BOOKED:409,CORS_NOT_ALLOWED:403,CREATOR_INVALID:400,APPLICATION_NOT_FOUND:404,INVALID_STAGE:409,ADMIN_EXISTS:409};
   res.status(map[err.message]||500).json({error:err.message||'SERVER_ERROR'});
 });
 
