@@ -295,7 +295,6 @@ async function postApplication(app){
   const e=new EmbedBuilder().setColor(color).setTitle(`تقديم #${app.number} — ${app.realName}`).setDescription(`<@${app.discordId}>`).addFields(
     {name:'العمر',value:String(app.age),inline:true},
     {name:'Discord',value:app.discordTag||app.discordId,inline:true},
-    {name:'نوع الشخصية',value:({criminal:'شخصية إجرامية',police:'شرطي',mechanic:'ميكانيكي',ems:'مسعف',lawyer:'محامي',civilian:'مدني',business:'رجل أعمال'})[app.characterType]||'غير محدد',inline:true},
     {name:'قصة الشخصية',value:app.story.slice(0,1000)},
     ...app.answers.map((a,i)=>({name:`س${i+1}: ${a.q}`.slice(0,256),value:(a.a||'—').slice(0,900)})),
     {name:'مراجعة القصة',value:'مراجعة يدوية — لا يتم عرض نسبة AI غير موثوقة.'.slice(0,1024)}
@@ -591,13 +590,11 @@ app.get('/api/me',auth,asyncRoute(async(req,res)=>{
 }));
 
 app.post('/api/applications',auth,asyncRoute(async(req,res)=>{
-  const {realName,age,story,answers,characterType}=req.body||{};
+  const {realName,age,story,answers}=req.body||{};
   if(!/^\S+\s+\S+/.test(String(realName||'').trim()))return res.status(400).json({error:'REAL_NAME_TWO_PARTS'});
   if(Number(age)<16||Number(age)>80)return res.status(400).json({error:'INVALID_AGE'});
   if(String(story||'').trim().length<120)return res.status(400).json({error:'STORY_TOO_SHORT'});
   if(!Array.isArray(answers)||answers.length!==questions.length||answers.some(x=>String(x||'').trim().length<10))return res.status(400).json({error:'ANSWERS_INCOMPLETE'});
-  const allowedCharacterTypes=['criminal','police','mechanic','ems','lawyer','civilian','business'];
-  if(!allowedCharacterTypes.includes(String(characterType||'')))return res.status(400).json({error:'INVALID_CHARACTER_TYPE'});
 
   let created;
   await mutate(db=>{
@@ -608,7 +605,7 @@ app.post('/api/applications',auth,asyncRoute(async(req,res)=>{
     db.counters.application=(db.counters.application||0)+1;
     created={
       id:crypto.randomUUID(),number:db.counters.application,discordId:req.user.id,discordTag:req.user.username,
-      realName:String(realName).trim(),age:Number(age),story:String(story).trim(),characterType:String(characterType),
+      realName:String(realName).trim(),age:Number(age),story:String(story).trim(),
       answers:questions.map((q,i)=>({q,a:String(answers[i]).trim()})),ai:inspectStory(story),
       status:'pending',createdAt:Date.now(),cooldownUntil:0
     };
