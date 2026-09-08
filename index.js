@@ -14,6 +14,8 @@ import {
   ModalBuilder, TextInputBuilder, TextInputStyle, Events, PermissionFlagsBits
 } from 'discord.js';
 
+const BUILD_VERSION = 'V17';
+
 // ===================== DISCORD IDs ===========================
 const IDS = {
   CLIENT_ID: '1545821707976056883',
@@ -295,6 +297,7 @@ async function postApplication(app){
   const e=new EmbedBuilder().setColor(color).setTitle(`تقديم #${app.number} — ${app.realName}`).setDescription(`<@${app.discordId}>`).addFields(
     {name:'العمر',value:String(app.age),inline:true},
     {name:'Discord',value:app.discordTag||app.discordId,inline:true},
+    {name:'نوع الشخصية',value:({criminal:'شخصية إجرامية',police:'شرطي',mechanic:'ميكانيكي',ems:'مسعف',lawyer:'محامي',civilian:'مدني',business:'رجل أعمال'})[app.characterType]||'غير محدد',inline:true},
     {name:'قصة الشخصية',value:app.story.slice(0,1000)},
     ...app.answers.map((a,i)=>({name:`س${i+1}: ${a.q}`.slice(0,256),value:(a.a||'—').slice(0,900)})),
     {name:'مراجعة القصة',value:'مراجعة يدوية — لا يتم عرض نسبة AI غير موثوقة.'.slice(0,1024)}
@@ -387,7 +390,7 @@ async function startBot(){
         await i.editReply({content:`✅ قبول مبدئي بواسطة <@${i.user.id}>`,components:[]}).catch(()=>{});
 
         let roleOk=true, dmOk=true;
-        try{ await role(app.discordId,IDS.PRE_ACCEPTED_ROLE_ID,true); }catch{ roleOk=false; }
+        try{ await role(app.discordId,IDS.VOICE_REVIEW_ROLE_ID,false); await role(app.discordId,IDS.PRE_ACCEPTED_ROLE_ID,true); }catch{ roleOk=false; }
         const acceptEmbed=turboDmEmbed({
           title:'✅ تم قبول تقديمك مبدئيًا',
           description:'مبروك! تم قبول طلبك مبدئيًا في **Turbo RP**.',
@@ -460,6 +463,7 @@ async function startBot(){
         ],
         colorValue:0xef4444
       });
+      await role(app.discordId,IDS.VOICE_REVIEW_ROLE_ID,false);
       const dmOk=await dm(app.discordId,{embeds:[rejectEmbed]});
 
       await i.editReply({content:`✅ تم رفض التقديم #${app.number} وحفظ السبب.${dmOk?'':'\n⚠️ تعذر إرسال رسالة خاصة للمتقدم.'}`});
@@ -586,15 +590,35 @@ app.get('/api/me',auth,asyncRoute(async(req,res)=>{
     if(['rejected','voice_rejected'].includes(latest.status)&&latest.cooldownUntil>Date.now()){canApply=false;waitMs=latest.cooldownUntil-Date.now()}
   }
   const booked=latest?.interviewSlotId?db.interviewSlots.find(s=>s.id===latest.interviewSlotId):null;
-  res.json({user:req.user,isAdmin:isAdmin(req.user,db),isOwner:isOwner(req.user),isManager:isManager(req.user,db),staffRole:panelStaffRole(req.user,db),latest,canApply,waitMs,booked});
+  const resolvedStaffRole=isOwner(req.user)?'owner':panelStaffRole(req.user,db);
+  res.json({user:req.user,isAdmin:isAdmin(req.user,db),isOwner:isOwner(req.user),isManager:isManager(req.user,db),staffRole:resolvedStaffRole,ownerUserId:String(IDS.OWNER_USER_ID),latest,canApply,waitMs,booked});
+}));
+
+app.post('/api/audit/event',asyncRoute(async(req,res)=>{
+  const rawToken=(req.headers.authorization||'').replace(/^Bearer\s+/i,'');
+  const viewer=verifyToken(rawToken);
+  const action=String(req.body?.action||'').trim().slice(0,80);
+  if(!action)return res.status(400).json({error:'AUDIT_ACTION_REQUIRED'});
+  const meta=req.body?.meta&&typeof req.body.meta==='object'?req.body.meta:{};
+  const cleanMeta={};
+  for(const [k,v] of Object.entries(meta).slice(0,20)){
+    cleanMeta[String(k).slice(0,60)]=typeof v==='string'?v.slice(0,500):v;
+  }
+  await mutate(db=>{
+    db.audit.push({at:Date.now(),by:viewer?.id||null,visitorId:String(req.body?.visitorId||'').slice(0,80)||null,action:`site_${action}`,path:String(req.body?.path||'').slice(0,240),meta:cleanMeta});
+    if(db.audit.length>20000)db.audit=db.audit.slice(-20000);
+  });
+  res.json({ok:true});
 }));
 
 app.post('/api/applications',auth,asyncRoute(async(req,res)=>{
-  const {realName,age,story,answers}=req.body||{};
+  const {realName,age,story,answers,characterType}=req.body||{};
   if(!/^\S+\s+\S+/.test(String(realName||'').trim()))return res.status(400).json({error:'REAL_NAME_TWO_PARTS'});
   if(Number(age)<16||Number(age)>80)return res.status(400).json({error:'INVALID_AGE'});
   if(String(story||'').trim().length<120)return res.status(400).json({error:'STORY_TOO_SHORT'});
   if(!Array.isArray(answers)||answers.length!==questions.length||answers.some(x=>String(x||'').trim().length<10))return res.status(400).json({error:'ANSWERS_INCOMPLETE'});
+  const allowedCharacterTypes=['criminal','police','mechanic','ems','lawyer','civilian','business'];
+  if(!allowedCharacterTypes.includes(String(characterType||'')))return res.status(400).json({error:'INVALID_CHARACTER_TYPE'});
 
   let created;
   await mutate(db=>{
@@ -605,7 +629,7 @@ app.post('/api/applications',auth,asyncRoute(async(req,res)=>{
     db.counters.application=(db.counters.application||0)+1;
     created={
       id:crypto.randomUUID(),number:db.counters.application,discordId:req.user.id,discordTag:req.user.username,
-      realName:String(realName).trim(),age:Number(age),story:String(story).trim(),
+      realName:String(realName).trim(),age:Number(age),story:String(story).trim(),characterType:String(characterType),
       answers:questions.map((q,i)=>({q,a:String(answers[i]).trim()})),ai:inspectStory(story),
       status:'pending',createdAt:Date.now(),cooldownUntil:0
     };
@@ -658,6 +682,14 @@ app.get('/api/admin/state',auth,admin,asyncRoute(async(req,res)=>{
   ];
   const role=panelStaffRole(req.user,db)||'admin';
   res.json({...db,panelAdmins,staffDirectory,viewer:{id:req.user.id,role,isOwner:role==='owner',isManager:role==='owner'||role==='manager'}});
+}));
+
+app.get('/api/admin/audit/export',auth,admin,asyncRoute(async(req,res)=>{
+  const db=req.db||await readDB();
+  const payload={exportedAt:new Date().toISOString(),build:BUILD_VERSION,count:db.audit.length,audit:db.audit};
+  res.setHeader('Content-Type','application/json; charset=utf-8');
+  res.setHeader('Content-Disposition',`attachment; filename=turbo-audit-log-${Date.now()}.json`);
+  res.send(JSON.stringify(payload,null,2));
 }));
 
 // ===== BACKUP / RESTORE (OWNER ONLY) =====
@@ -811,6 +843,10 @@ app.post('/api/admin/applications/:id/action',auth,admin,asyncRoute(async(req,re
     await role(a.discordId,IDS.VOICE_REJECT_ROLE_B_ID,false);
     await role(a.discordId,IDS.ENTRY_ROLE_ID,false);
     await dm(a.discordId,{embeds:[turboDmEmbed({title:'⛔ حظر دائم من التقديم',description:a.reason||'تم حظرك بشكل دائم من التقديم.',colorValue:0x991b1b})]});
+  }else if(action==='reset'){
+    // رول قيد المراجعة موجود فقط أثناء المراجعة، لذلك يتشال عند السماح بإعادة التقديم.
+    await role(a.discordId,IDS.VOICE_REVIEW_ROLE_ID,false);
+    await role(a.discordId,IDS.PRE_ACCEPTED_ROLE_ID,false);
   }
   res.json({ok:true,application:a});
 }));
@@ -825,15 +861,15 @@ app.post('/api/admin/creators',auth,admin,asyncRoute(async(req,res)=>{
   });
   res.json(c);
 }));
-app.delete('/api/admin/creators/:id',auth,admin,asyncRoute(async(req,res)=>{await mutate(db=>{db.creators=db.creators.filter(c=>c.id!==req.params.id)});res.json({ok:true})}));
+app.delete('/api/admin/creators/:id',auth,admin,asyncRoute(async(req,res)=>{await mutate(db=>{db.creators=db.creators.filter(c=>c.id!==req.params.id);db.audit.push({at:Date.now(),by:req.user.id,action:'creator_remove',creatorId:req.params.id})});res.json({ok:true})}));
 app.post('/api/admin/interviews',auth,admin,asyncRoute(async(req,res)=>{
   const at=new Date(req.body.at);
   if(Number.isNaN(at.getTime())||at<=new Date())return res.status(400).json({error:'INVALID_INTERVIEW_DATE'});
   let slot;
-  await mutate(db=>{slot={id:crypto.randomUUID(),at:at.toISOString(),note:String(req.body.note||'').slice(0,500),bookedBy:null,applicationId:null};db.interviewSlots.push(slot)});
+  await mutate(db=>{slot={id:crypto.randomUUID(),at:at.toISOString(),note:String(req.body.note||'').slice(0,500),bookedBy:null,applicationId:null};db.interviewSlots.push(slot);db.audit.push({at:Date.now(),by:req.user.id,action:'interview_add',slotId:slot.id})});
   res.json(slot);
 }));
-app.delete('/api/admin/interviews/:id',auth,admin,asyncRoute(async(req,res)=>{await mutate(db=>{const s=db.interviewSlots.find(x=>x.id===req.params.id);if(s?.bookedBy)throw new Error('BOOKED');db.interviewSlots=db.interviewSlots.filter(x=>x.id!==req.params.id)});res.json({ok:true})}));
+app.delete('/api/admin/interviews/:id',auth,admin,asyncRoute(async(req,res)=>{await mutate(db=>{const s=db.interviewSlots.find(x=>x.id===req.params.id);if(s?.bookedBy)throw new Error('BOOKED');db.interviewSlots=db.interviewSlots.filter(x=>x.id!==req.params.id);db.audit.push({at:Date.now(),by:req.user.id,action:'interview_remove',slotId:req.params.id})});res.json({ok:true})}));
 app.post('/api/admin/users/:discordId/reset',auth,admin,asyncRoute(async(req,res)=>{
   await mutate(db=>{
     const latest=[...db.applications].reverse().find(a=>a.discordId===req.params.discordId);
@@ -878,7 +914,7 @@ app.use((err,req,res,next)=>{
 });
 
 const port=process.env.PORT||3000;
-app.listen(port,'0.0.0.0',()=>console.log(`Turbo API listening on ${port}`));
+app.listen(port,'0.0.0.0',()=>{console.log(`Turbo API ${BUILD_VERSION} listening on ${port}`);mutate(db=>{db.audit.push({at:Date.now(),by:'system',action:'system_deploy',build:BUILD_VERSION})}).catch(()=>{})});
 startBot().catch(e=>console.error('Discord bot failed:',e));
 setInterval(checkLives,Math.max(1,Number(process.env.LIVE_CHECK_MINUTES||3))*60*1000);
 setTimeout(checkLives,5000);
