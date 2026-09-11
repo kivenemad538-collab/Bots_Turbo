@@ -11,10 +11,10 @@ import fs from 'fs/promises';
 import path from 'path';
 import {
   Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle,
-  ModalBuilder, TextInputBuilder, TextInputStyle, Events, PermissionFlagsBits
+  ModalBuilder, TextInputBuilder, TextInputStyle, Events, PermissionFlagsBits, ChannelType
 } from 'discord.js';
 
-const BUILD_VERSION = 'V18-WEBSITE-TEAM-BRANDING-SYNC';
+const BUILD_VERSION = 'V19-JOB-APPLICATIONS-TICKETS';
 
 // ===================== DISCORD IDs ===========================
 const IDS = {
@@ -27,6 +27,16 @@ const IDS = {
   VOICE_REJECT_ROLE_A_ID: '1530597019180339281',
   VOICE_REJECT_ROLE_B_ID: '1530597216111169586',
   OWNER_USER_ID: '1445069224899907709',
+
+  JOB_GUILD_ID: '1535337681842606230',
+  JOB_MANAGER_ROLE_ID: '1547782805495484497',
+  JOB_REVIEW_EMS_CHANNEL_ID: '1547780819240882327',
+  JOB_REVIEW_POLICE_CHANNEL_ID: '1547780876220235796',
+  JOB_REVIEW_MECHANIC_CHANNEL_ID: '1547781785067327498',
+  JOB_TICKET_EMS_CATEGORY_ID: '1535337797169320078',
+  JOB_TICKET_POLICE_CATEGORY_ID: '1535338633572388977',
+  JOB_TICKET_MECHANIC_CATEGORY_ID: '1535349054765142178',
+
 
   // حط كل رولات الإدارة اللي مسموح لها تراجع وتتحكم
   ADMIN_ROLE_IDS: [
@@ -63,8 +73,10 @@ const seed = {
     logoImage:'',
     cityBackground:''
   },
-  counters:{application:0},
+  counters:{application:0,jobApplication:0},
   applications:[],
+  jobApplications:[],
+  mechanicWorkshops:[],
   creators:[],
   teamMembers:[],
   interviewSlots:[],
@@ -178,6 +190,11 @@ function ensureWebsiteFields(db){
   if(typeof db.settings.logoImage!=='string') db.settings.logoImage='';
   if(typeof db.settings.cityBackground!=='string') db.settings.cityBackground='';
   if(!Array.isArray(db.teamMembers)) db.teamMembers=[];
+  return db;
+  if(!db.counters || typeof db.counters!=='object') db.counters={application:0,jobApplication:0};
+  if(typeof db.counters.jobApplication!=='number') db.counters.jobApplication=0;
+  if(!Array.isArray(db.jobApplications)) db.jobApplications=[];
+  if(!Array.isArray(db.mechanicWorkshops)) db.mechanicWorkshops=[];
   return db;
 }
 
@@ -367,6 +384,79 @@ async function markVoicePassed(userId,by='admin'){
   return app;
 }
 
+
+
+const JOB_LABELS={ems:'مسعف',police:'شرطة',mechanic:'ميكانيكي'};
+const JOB_REVIEW_CHANNELS={ems:IDS.JOB_REVIEW_EMS_CHANNEL_ID,police:IDS.JOB_REVIEW_POLICE_CHANNEL_ID,mechanic:IDS.JOB_REVIEW_MECHANIC_CHANNEL_ID};
+const JOB_TICKET_CATEGORIES={ems:IDS.JOB_TICKET_EMS_CATEGORY_ID,police:IDS.JOB_TICKET_POLICE_CATEGORY_ID,mechanic:IDS.JOB_TICKET_MECHANIC_CATEGORY_ID};
+
+async function isJobManager(interaction){
+  try{
+    if(String(interaction.user?.id)===String(IDS.OWNER_USER_ID))return true;
+    const g=await client.guilds.fetch(IDS.JOB_GUILD_ID);
+    const m=await g.members.fetch(interaction.user.id);
+    return m.roles.cache.has(IDS.JOB_MANAGER_ROLE_ID);
+  }catch{return false}
+}
+
+async function postJobApplication(job){
+  if(!client?.isReady())return;
+  const channelId=JOB_REVIEW_CHANNELS[job.type];
+  if(!channelId)return;
+  const ch=await client.channels.fetch(channelId);
+  if(!ch?.isTextBased())throw new Error('JOB_REVIEW_CHANNEL_NOT_TEXT');
+  const fields=[
+    {name:'المتقدم',value:`<@${job.discordId}>`,inline:true},
+    {name:'الاسم',value:job.realName,inline:true},
+    {name:'العمر',value:String(job.age),inline:true},
+    {name:'الوظيفة',value:JOB_LABELS[job.type]||job.type,inline:true},
+    ...(job.type==='mechanic'?[{name:'الورشة',value:job.workshopName||'غير محددة',inline:true}]:[]),
+    {name:'الخبرة',value:String(job.experience||'—').slice(0,1024)},
+    {name:'ليه عايز الوظيفة؟',value:String(job.why||'—').slice(0,1024)},
+    {name:'أوقات التواجد',value:String(job.availability||'—').slice(0,1024)}
+  ];
+  const embed=new EmbedBuilder().setColor(0x3b8fb8).setTitle(`تقديم ${JOB_LABELS[job.type]} #${job.number}`).addFields(fields).setFooter({text:`Job Application ID: ${job.id}`}).setTimestamp();
+  const row=new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`jobaccept:${job.id}`).setLabel('قبول وفتح تذكرة').setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(`jobreject:${job.id}`).setLabel('رفض').setStyle(ButtonStyle.Danger)
+  );
+  const msg=await ch.send({content:`<@&${IDS.JOB_MANAGER_ROLE_ID}> تقديم جديد`,embeds:[embed],components:[row]});
+  await mutate(db=>{const a=(db.jobApplications||[]).find(x=>x.id===job.id);if(a)a.reviewMessageId=msg.id});
+}
+
+async function createJobTicket(job){
+  const guild=await client.guilds.fetch(IDS.JOB_GUILD_ID);
+  const categoryId=JOB_TICKET_CATEGORIES[job.type];
+  if(!categoryId)throw new Error('JOB_TICKET_CATEGORY_MISSING');
+  let applicantMember=null;
+  try{ applicantMember=await guild.members.fetch(job.discordId); }catch{}
+  const perms=[
+    {id:guild.roles.everyone.id,deny:[PermissionFlagsBits.ViewChannel]},
+    {id:IDS.JOB_MANAGER_ROLE_ID,allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages,PermissionFlagsBits.ReadMessageHistory,PermissionFlagsBits.AttachFiles,PermissionFlagsBits.EmbedLinks]}
+  ];
+  if(applicantMember)perms.push({id:job.discordId,allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages,PermissionFlagsBits.ReadMessageHistory,PermissionFlagsBits.AttachFiles,PermissionFlagsBits.EmbedLinks]});
+  if(client.user?.id)perms.push({id:client.user.id,allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages,PermissionFlagsBits.ReadMessageHistory,PermissionFlagsBits.ManageChannels]});
+  const channel=await guild.channels.create({
+    name:`${job.type}-${String(job.number).padStart(3,'0')}`,
+    type:ChannelType.GuildText,
+    parent:categoryId,
+    permissionOverwrites:perms,
+    topic:`Turbo Job Application ${job.id} | ${job.realName}`
+  });
+  const embed=new EmbedBuilder().setColor(0x3b8fb8).setTitle(`تذكرة قبول ${JOB_LABELS[job.type]}`).setDescription(applicantMember?`أهلًا <@${job.discordId}>، تم قبول تقديمك. الإدارة هتكمل معاك هنا.`:`تم قبول <@${job.discordId}> لكن العضو غير موجود داخل السيرفر حاليًا.`).addFields(
+    {name:'الاسم',value:job.realName,inline:true},
+    {name:'الوظيفة',value:JOB_LABELS[job.type],inline:true},
+    ...(job.type==='mechanic'?[{name:'الورشة',value:job.workshopName||'—',inline:true}]:[])
+  );
+  const row=new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`jobclaim:${job.id}`).setLabel('استلام التذكرة').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId(`jobclose:${job.id}`).setLabel('إغلاق التذكرة').setStyle(ButtonStyle.Secondary)
+  );
+  const m=await channel.send({content:`<@${job.discordId}> <@&${IDS.JOB_MANAGER_ROLE_ID}>`,embeds:[embed],components:[row]});
+  await mutate(db=>{const a=(db.jobApplications||[]).find(x=>x.id===job.id);if(a){a.ticketChannelId=channel.id;a.ticketMessageId=m.id;}});
+  return channel;
+}
+
 async function startBot(){
   if(!process.env.DISCORD_BOT_TOKEN){console.warn('DISCORD_BOT_TOKEN is missing. Bot disabled.');return null}
   client=new Client({intents:[GatewayIntentBits.Guilds,GatewayIntentBits.GuildMembers]});
@@ -551,6 +641,7 @@ app.get('/api/public',asyncRoute(async(req,res)=>{
       cityBackground:db.settings.cityBackground||''
     },
     teamMembers:[...(db.teamMembers||[])].sort((a,b)=>(a.order||0)-(b.order||0)),
+    mechanicWorkshops:[...(db.mechanicWorkshops||[])].filter(x=>x.active!==false).sort((a,b)=>(a.order||0)-(b.order||0)),
     creators:[...db.creators].sort((a,b)=>(a.order||0)-(b.order||0)),
     questions,
     interviewSlots:db.interviewSlots.filter(s=>!s.bookedBy&&new Date(s.at)>new Date()).sort((a,b)=>new Date(a.at)-new Date(b.at))
@@ -609,8 +700,9 @@ app.get('/api/me',auth,asyncRoute(async(req,res)=>{
     if(['rejected','voice_rejected'].includes(latest.status)&&latest.cooldownUntil>Date.now()){canApply=false;waitMs=latest.cooldownUntil-Date.now()}
   }
   const booked=latest?.interviewSlotId?db.interviewSlots.find(s=>s.id===latest.interviewSlotId):null;
+  const jobApplications=(db.jobApplications||[]).filter(a=>a.discordId===req.user.id).sort((a,b)=>b.createdAt-a.createdAt);
   const resolvedStaffRole=isOwner(req.user)?'owner':panelStaffRole(req.user,db);
-  res.json({user:req.user,isAdmin:isAdmin(req.user,db),isOwner:isOwner(req.user),isManager:isManager(req.user,db),staffRole:resolvedStaffRole,ownerUserId:String(IDS.OWNER_USER_ID),latest,canApply,waitMs,booked});
+  res.json({user:req.user,isAdmin:isAdmin(req.user,db),isOwner:isOwner(req.user),isManager:isManager(req.user,db),staffRole:resolvedStaffRole,ownerUserId:String(IDS.OWNER_USER_ID),latest,canApply,waitMs,booked,jobApplications});
 }));
 
 app.post('/api/audit/event',asyncRoute(async(req,res)=>{
@@ -872,6 +964,43 @@ app.post('/api/admin/applications/:id/action',auth,admin,asyncRoute(async(req,re
   res.json({ok:true,application:a});
 }));
 
+
+
+
+app.post('/api/job-applications',auth,asyncRoute(async(req,res)=>{
+  const {type,realName,age,experience,why,availability,workshopId}=req.body||{};
+  const jobType=String(type||'');
+  if(!['ems','police','mechanic'].includes(jobType))return res.status(400).json({error:'INVALID_JOB_TYPE'});
+  if(!/^\S+\s+\S+/.test(String(realName||'').trim()))return res.status(400).json({error:'REAL_NAME_TWO_PARTS'});
+  if(Number(age)<16||Number(age)>80)return res.status(400).json({error:'INVALID_AGE'});
+  if(String(experience||'').trim().length<20||String(why||'').trim().length<20)return res.status(400).json({error:'JOB_ANSWERS_SHORT'});
+  let created;
+  await mutate(db=>{
+    db.jobApplications=Array.isArray(db.jobApplications)?db.jobApplications:[];
+    db.mechanicWorkshops=Array.isArray(db.mechanicWorkshops)?db.mechanicWorkshops:[];
+    const active=db.jobApplications.find(x=>x.discordId===req.user.id&&x.type===jobType&&x.status==='pending');
+    if(active)throw new Error('JOB_ALREADY_PENDING');
+    let workshopName='';
+    if(jobType==='mechanic'){
+      const w=db.mechanicWorkshops.find(x=>x.id===String(workshopId||'')&&x.active!==false);
+      if(!w)throw new Error('WORKSHOP_REQUIRED');
+      workshopName=w.name;
+    }
+    db.counters.jobApplication=(db.counters.jobApplication||0)+1;
+    created={id:crypto.randomUUID(),number:db.counters.jobApplication,discordId:req.user.id,discordTag:req.user.username,type:jobType,realName:String(realName).trim(),age:Number(age),experience:String(experience).trim(),why:String(why).trim(),availability:String(availability||'').trim(),workshopId:jobType==='mechanic'?String(workshopId):null,workshopName,status:'pending',createdAt:Date.now()};
+    db.jobApplications.push(created);db.audit.push({at:Date.now(),by:req.user.id,action:'job_application_create',jobApplicationId:created.id,type:jobType});
+  });
+  await postJobApplication(created);
+  res.json({ok:true,application:created});
+}));
+
+app.post('/api/admin/mechanic-workshops',auth,admin,asyncRoute(async(req,res)=>{
+  const name=String(req.body?.name||'').trim().slice(0,100);if(!name)return res.status(400).json({error:'WORKSHOP_NAME_REQUIRED'});
+  const item={id:crypto.randomUUID(),name,order:Number(req.body?.order||0),active:true,createdAt:Date.now()};
+  await mutate(db=>{db.mechanicWorkshops=Array.isArray(db.mechanicWorkshops)?db.mechanicWorkshops:[];db.mechanicWorkshops.push(item);db.audit.push({at:Date.now(),by:req.user.id,action:'workshop_add',workshopId:item.id,name});});
+  res.json({ok:true,workshop:item});
+}));
+app.delete('/api/admin/mechanic-workshops/:id',auth,admin,asyncRoute(async(req,res)=>{await mutate(db=>{db.mechanicWorkshops=(db.mechanicWorkshops||[]).filter(x=>x.id!==req.params.id);db.audit.push({at:Date.now(),by:req.user.id,action:'workshop_remove',workshopId:req.params.id});});res.json({ok:true});}));
 
 app.post('/api/admin/team-members',auth,admin,asyncRoute(async(req,res)=>{
   const name=String(req.body?.name||'').trim().slice(0,80);
