@@ -68,8 +68,10 @@ const file = process.env.DATA_FILE || (process.env.RAILWAY_VOLUME_MOUNT_PATH ? `
 const seed = {
   settings:{
     applicationsOpen:true,
+    jobApplicationsOpen:true,
     aboutText:'Turbo RP هو سيرفر رول بلاي عربي بنركز فيه على السيناريوهات والتفاعل وجودة التجربة.',
     rules:[],
+    news:[],
     logoImage:'',
     cityBackground:''
   },
@@ -194,6 +196,8 @@ function ensureWebsiteFields(db){
   if(typeof db.counters.application!=='number') db.counters.application=0;
   if(typeof db.counters.jobApplication!=='number') db.counters.jobApplication=0;
   if(!Array.isArray(db.jobApplications)) db.jobApplications=[];
+  if(!Array.isArray(db.settings.news)) db.settings.news=[];
+  if(typeof db.settings.jobApplicationsOpen!=='boolean') db.settings.jobApplicationsOpen=true;
   if(!Array.isArray(db.mechanicWorkshops)) db.mechanicWorkshops=[];
   return db;
 }
@@ -692,13 +696,26 @@ async function startBot(){
 
     } else if(i.isButton()&&i.customId.startsWith('jobclose:')){
       if(!(await isJobManager(i))) return i.reply({content:'❌ ليس لديك صلاحية إغلاق التذكرة.',ephemeral:true});
-      await i.reply({content:'🔒 سيتم إغلاق التذكرة خلال 3 ثواني.',ephemeral:false});
       const id=i.customId.split(':')[1];
+      const modal=new ModalBuilder().setCustomId(`jobclosemodal:${id}`).setTitle('إغلاق تذكرة الوظيفة');
+      const inp=new TextInputBuilder().setCustomId('reason').setLabel('سبب إغلاق التذكرة').setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(500);
+      modal.addComponents(new ActionRowBuilder().addComponents(inp));
+      return i.showModal(modal);
+
+    } else if(i.isModalSubmit()&&i.customId.startsWith('jobclosemodal:')){
+      if(!(await isJobManager(i))) return i.reply({content:'❌ ليس لديك صلاحية إغلاق التذكرة.',ephemeral:true});
+      await i.deferReply({ephemeral:true});
+      const id=i.customId.split(':')[1];
+      const reason=i.fields.getTextInputValue('reason').trim();
+      let job;
       await mutate(db=>{
-        const a=(db.jobApplications||[]).find(x=>x.id===id);
-        if(a){a.ticketClosedAt=Date.now();a.ticketClosedBy=i.user.id;db.audit.push({at:Date.now(),by:i.user.id,action:'job_ticket_close',jobApplicationId:id});}
+        job=(db.jobApplications||[]).find(x=>x.id===id);
+        if(job){job.ticketClosedAt=Date.now();job.ticketClosedBy=i.user.id;job.ticketCloseReason=reason;db.audit.push({at:Date.now(),by:i.user.id,action:'job_ticket_close',jobApplicationId:id,reason});}
       });
-      setTimeout(()=>i.channel?.delete('Turbo job ticket closed').catch(()=>{}),3000);
+      if(!job)return i.editReply({content:'❌ التقديم غير موجود.'});
+      await dm(job.discordId,{embeds:[turboDmEmbed({title:`🔒 تم إغلاق تذكرة ${JOB_LABELS[job.type]||'الوظيفة'}`,description:`تم إغلاق تذكرتك بواسطة <@${i.user.id}>.\n**السبب:** ${reason.slice(0,500)}`,colorValue:0xef4444})]}).catch(()=>false);
+      await i.editReply({content:'✅ تم تسجيل السبب وإرساله للمتقدم. سيتم إغلاق التذكرة خلال 3 ثواني.'});
+      setTimeout(()=>i.channel?.delete(`Turbo job ticket closed: ${reason}`.slice(0,500)).catch(()=>{}),3000);
       return;
 
     } else if(i.isButton()&&(i.customId.startsWith('accept:')||i.customId.startsWith('reject:'))){
@@ -873,8 +890,10 @@ app.get('/api/public',asyncRoute(async(req,res)=>{
   res.json({
     settings:{
       applicationsOpen:db.settings.applicationsOpen,
+      jobApplicationsOpen:db.settings.jobApplicationsOpen!==false,
       aboutText:db.settings.aboutText,
       rules:db.settings.rules,
+      news:db.settings.news||[],
       logoImage:db.settings.logoImage||'',
       cityBackground:db.settings.cityBackground||''
     },
@@ -1070,11 +1089,13 @@ app.get('/api/admin/storage-status',auth,owner,asyncRoute(async(req,res)=>{
 }));
 
 app.patch('/api/admin/settings',auth,admin,asyncRoute(async(req,res)=>{
-  const {applicationsOpen,aboutText,rules,logoImage,cityBackground}=req.body;
+  const {applicationsOpen,jobApplicationsOpen,aboutText,rules,news,logoImage,cityBackground}=req.body;
   await mutate(db=>{
     if(typeof applicationsOpen==='boolean')db.settings.applicationsOpen=applicationsOpen;
+    if(typeof jobApplicationsOpen==='boolean')db.settings.jobApplicationsOpen=jobApplicationsOpen;
     if(typeof aboutText==='string')db.settings.aboutText=aboutText.slice(0,5000);
     if(Array.isArray(rules))db.settings.rules=rules.map(x=>String(x).slice(0,1000));
+    if(Array.isArray(news))db.settings.news=news.slice(0,20).map(x=>({id:String(x.id||crypto.randomUUID()),title:String(x.title||'').slice(0,120),body:String(x.body||'').slice(0,2000),createdAt:Number(x.createdAt||Date.now())})).filter(x=>x.title&&x.body);
     if(typeof logoImage==='string')db.settings.logoImage=logoImage.slice(0,900000);
     if(typeof cityBackground==='string')db.settings.cityBackground=cityBackground.slice(0,4000);
     db.audit.push({at:Date.now(),by:req.user.id,action:'settings_update'});
@@ -1210,6 +1231,7 @@ app.post('/api/admin/applications/:id/action',auth,admin,asyncRoute(async(req,re
 
 
 app.post('/api/job-applications',auth,asyncRoute(async(req,res)=>{
+  { const db=await readDB(); if(db.settings.jobApplicationsOpen===false)return res.status(403).json({error:'JOB_APPLICATIONS_CLOSED'}); }
   const {type,realName,age,experience,why,availability,workshopId}=req.body||{};
   const jobType=String(type||'').trim();
   if(!['ems','police','mechanic'].includes(jobType))return res.status(400).json({error:'INVALID_JOB_TYPE'});
