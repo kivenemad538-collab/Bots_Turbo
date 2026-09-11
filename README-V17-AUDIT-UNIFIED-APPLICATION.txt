@@ -1,9 +1,5 @@
-Turbo V17
-
-1) تم دمج التقديم وحالة التقديم في صفحة واحدة.
-2) إذا كان للمستخدم تقديم قائم أو نهائي تظهر حالته وكل بياناته داخل صفحة التقديم.
-3) إذا انتهت مدة الرفض أو سمحت الإدارة بإعادة التقديم يظهر زر تقديم جديد.
-4) سجل النشاط محفوظ داخل db.audit ويمكن تنزيله من لوحة الإدارة باسم turbo-audit-log-*.json.
-5) سجل النشاط مستمر مع DATABASE_URL/Backup ولا يعتمد على ملفات GitHub Pages.
-6) أي قبول/رفض/حظر/Reset يزيل رول قيد المراجعة 1539984535582941325.
-7) Discord ID 1445069224899907709 يتم اعتباره OWNER قبل أي Admin entry.
+Turbo Bot V17
+- Persistent audit log in db.audit + admin export endpoint.
+- Deployment events are logged as system_deploy.
+- Owner ID is forced to OWNER.
+- Review role 1539984535582941325 is removed on final/first-stage decisions and reset.
