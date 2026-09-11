@@ -14,7 +14,7 @@ import {
   ModalBuilder, TextInputBuilder, TextInputStyle, Events, PermissionFlagsBits, ChannelType
 } from 'discord.js';
 
-const BUILD_VERSION = 'V20-JOB-APPLICATIONS-STABLE';
+const BUILD_VERSION = 'V21-JOB-DISCORD-PREFLIGHT';
 
 // ===================== DISCORD IDs ===========================
 const IDS = {
@@ -35,7 +35,7 @@ const IDS = {
   JOB_REVIEW_MECHANIC_CHANNEL_ID: '1547781785067327498',
   JOB_TICKET_EMS_CATEGORY_ID: '1535337797169320078',
   JOB_TICKET_POLICE_CATEGORY_ID: '1535338633572388977',
-  JOB_TICKET_MECHANIC_CATEGORY_ID: '1535349054765142178',
+  JOB_TICKET_MECHANIC_CATEGORY_ID: '1535338633572388977',
 
 
   // حط كل رولات الإدارة اللي مسموح لها تراجع وتتحكم
@@ -390,6 +390,117 @@ const JOB_LABELS={ems:'مسعف',police:'شرطة',mechanic:'ميكانيكي'};
 const JOB_REVIEW_CHANNELS={ems:IDS.JOB_REVIEW_EMS_CHANNEL_ID,police:IDS.JOB_REVIEW_POLICE_CHANNEL_ID,mechanic:IDS.JOB_REVIEW_MECHANIC_CHANNEL_ID};
 const JOB_TICKET_CATEGORIES={ems:IDS.JOB_TICKET_EMS_CATEGORY_ID,police:IDS.JOB_TICKET_POLICE_CATEGORY_ID,mechanic:IDS.JOB_TICKET_MECHANIC_CATEGORY_ID};
 
+
+async function getJobGuild(){
+  if(!client?.isReady())throw new Error('JOB_DISCORD_UNAVAILABLE');
+  try{
+    const guild=await client.guilds.fetch(IDS.JOB_GUILD_ID);
+    if(!guild)throw new Error('JOB_GUILD_NOT_FOUND');
+    return guild;
+  }catch(e){
+    if(e?.message==='JOB_GUILD_NOT_FOUND')throw e;
+    console.error('[JOB PREFLIGHT] Cannot access jobs guild',IDS.JOB_GUILD_ID,e?.message);
+    throw new Error('JOB_GUILD_NOT_FOUND');
+  }
+}
+
+async function getJobBotMember(guild){
+  try{
+    return guild.members.me || await guild.members.fetchMe();
+  }catch(e){
+    console.error('[JOB PREFLIGHT] Cannot fetch bot member',e?.message);
+    throw new Error('JOB_BOT_MEMBER_UNAVAILABLE');
+  }
+}
+
+async function getJobReviewChannel(jobType){
+  const channelId=JOB_REVIEW_CHANNELS[jobType];
+  if(!channelId)throw new Error('JOB_REVIEW_CHANNEL_MISSING');
+
+  const guild=await getJobGuild();
+
+  let ch;
+  try{
+    ch=await guild.channels.fetch(channelId);
+  }catch(e){
+    console.error(`[JOB PREFLIGHT] Cannot fetch ${jobType} review channel ${channelId}`,e?.message);
+    throw new Error('JOB_REVIEW_CHANNEL_NOT_FOUND');
+  }
+
+  if(!ch)throw new Error('JOB_REVIEW_CHANNEL_NOT_FOUND');
+  if(String(ch.guildId)!==String(IDS.JOB_GUILD_ID))throw new Error('JOB_REVIEW_WRONG_GUILD');
+  if(!ch.isTextBased() || typeof ch.send!=='function')throw new Error('JOB_REVIEW_NOT_TEXT');
+
+  const me=await getJobBotMember(guild);
+  const perms=ch.permissionsFor(me);
+  if(!perms?.has(PermissionFlagsBits.ViewChannel))throw new Error('JOB_REVIEW_NO_VIEW');
+  if(!perms?.has(PermissionFlagsBits.SendMessages))throw new Error('JOB_REVIEW_NO_SEND');
+  if(!perms?.has(PermissionFlagsBits.EmbedLinks))throw new Error('JOB_REVIEW_NO_EMBEDS');
+
+  return ch;
+}
+
+async function validateTicketCategory(jobType){
+  const targetId=JOB_TICKET_CATEGORIES[jobType];
+  if(!targetId)throw new Error('JOB_TICKET_TARGET_MISSING');
+
+  const guild=await getJobGuild();
+  let target;
+  try{
+    target=await guild.channels.fetch(targetId);
+  }catch(e){
+    console.error(`[JOB PREFLIGHT] Cannot fetch ${jobType} ticket category ${targetId}`,e?.message);
+    throw new Error('JOB_TICKET_CATEGORY_NOT_FOUND');
+  }
+
+  if(!target)throw new Error('JOB_TICKET_CATEGORY_NOT_FOUND');
+  if(target.type!==ChannelType.GuildCategory)throw new Error('JOB_TICKET_TARGET_NOT_CATEGORY');
+
+  const me=await getJobBotMember(guild);
+  const perms=target.permissionsFor(me);
+  if(perms && !perms.has(PermissionFlagsBits.ViewChannel))throw new Error('JOB_TICKET_NO_VIEW');
+
+  return target;
+}
+
+async function getJobConfigHealth(){
+  const result={ready:!!client?.isReady(),guildId:IDS.JOB_GUILD_ID,guild:false,managerRole:false,jobs:{}};
+  if(!client?.isReady()){result.error='JOB_DISCORD_UNAVAILABLE';return result}
+
+  let guild;
+  try{guild=await getJobGuild();result.guild=true}
+  catch(e){result.error=e.message;return result}
+
+  try{result.managerRole=!!(await guild.roles.fetch(IDS.JOB_MANAGER_ROLE_ID))}catch{}
+
+  for(const type of Object.keys(JOB_LABELS)){
+    const item={
+      reviewId:JOB_REVIEW_CHANNELS[type],
+      ticketCategoryId:JOB_TICKET_CATEGORIES[type],
+      review:false,
+      ticketCategory:false,
+      errors:[]
+    };
+
+    try{
+      const c=await getJobReviewChannel(type);
+      item.review=true;
+      item.reviewName=c.name;
+    }catch(e){item.errors.push(e.message)}
+
+    try{
+      const c=await validateTicketCategory(type);
+      item.ticketCategory=true;
+      item.ticketCategoryName=c.name;
+    }catch(e){item.errors.push(e.message)}
+
+    result.jobs[type]=item;
+  }
+
+  result.ok=result.guild && result.managerRole && Object.values(result.jobs).every(x=>x.review&&x.ticketCategory);
+  return result;
+}
+
 async function isJobManager(interaction){
   try{
     if(String(interaction.user?.id)===String(IDS.OWNER_USER_ID))return true;
@@ -401,10 +512,7 @@ async function isJobManager(interaction){
 
 async function postJobApplication(job){
   if(!client?.isReady())return;
-  const channelId=JOB_REVIEW_CHANNELS[job.type];
-  if(!channelId)return;
-  const ch=await client.channels.fetch(channelId);
-  if(!ch?.isTextBased())throw new Error('JOB_REVIEW_CHANNEL_NOT_TEXT');
+  const ch=await getJobReviewChannel(job.type);
   const fields=[
     {name:'المتقدم',value:`<@${job.discordId}>`,inline:true},
     {name:'الاسم',value:job.realName,inline:true},
@@ -427,11 +535,8 @@ async function postJobApplication(job){
 
 async function updateJobReviewMessage(job,text,components=[]){
   if(!client?.isReady()||!job?.reviewMessageId)return;
-  const channelId=JOB_REVIEW_CHANNELS[job.type];
-  if(!channelId)return;
   try{
-    const ch=await client.channels.fetch(channelId);
-    if(!ch?.isTextBased())return;
+    const ch=await getJobReviewChannel(job.type);
     const msg=await ch.messages.fetch(job.reviewMessageId);
     await msg.edit({content:text,components});
   }catch(e){console.warn('Job review message update failed:',e.message)}
@@ -456,9 +561,9 @@ async function rejectJobApplication(jobId,by,reason){
 
 async function createJobTicket(job){
   if(!client?.isReady())throw new Error('JOB_DISCORD_UNAVAILABLE');
-  const guild=await client.guilds.fetch(IDS.JOB_GUILD_ID);
-  const targetId=JOB_TICKET_CATEGORIES[job.type];
-  if(!targetId)throw new Error('JOB_TICKET_TARGET_MISSING');
+  const guild=await getJobGuild();
+  const target=await validateTicketCategory(job.type);
+  const targetId=target.id;
 
   // Never create a second ticket if Accept is clicked twice.
   if(job.ticketChannelId){
@@ -466,8 +571,7 @@ async function createJobTicket(job){
     if(existing)return existing;
   }
 
-  const target=await guild.channels.fetch(targetId).catch(()=>null);
-  const parentId=target?.type===ChannelType.GuildCategory ? target.id : undefined;
+  const parentId=target.id;
 
   let applicantMember=null;
   try{ applicantMember=await guild.members.fetch(job.discordId); }catch{}
@@ -499,11 +603,6 @@ async function createJobTicket(job){
     new ButtonBuilder().setCustomId(`jobclose:${job.id}`).setLabel('إغلاق التذكرة').setStyle(ButtonStyle.Secondary)
   );
   const msg=await channel.send({content:`<@${job.discordId}> <@&${IDS.JOB_MANAGER_ROLE_ID}>`,embeds:[embed],components:[row]});
-
-  // If the supplied target ID is a text channel instead of a category, send a pointer there instead of failing.
-  if(target?.isTextBased?.() && target.id!==channel.id){
-    await target.send({content:`✅ تم فتح تذكرة ${JOB_LABELS[job.type]} للتقديم #${job.number}: <#${channel.id}>`}).catch(()=>{});
-  }
 
   await mutate(db=>{
     const a=(db.jobApplications||[]).find(x=>x.id===job.id);
@@ -919,6 +1018,10 @@ app.post('/api/admin/password-login',asyncRoute(async(req,res)=>{
   res.json({ok:true,token,expiresIn:6*3600});
 }));
 
+app.get('/api/admin/job-config-health',auth,admin,asyncRoute(async(req,res)=>{
+  res.json(await getJobConfigHealth());
+}));
+
 app.get('/api/admin/state',auth,admin,asyncRoute(async(req,res)=>{
   const db=await readDB();
   const panelAdmins=await Promise.all((db.panelAdmins||[]).map(async entry=>{
@@ -1116,9 +1219,12 @@ app.post('/api/job-applications',auth,asyncRoute(async(req,res)=>{
   if(String(availability||'').trim().length<5)return res.status(400).json({error:'JOB_AVAILABILITY_SHORT'});
   if(!client?.isReady())return res.status(503).json({error:'JOB_DISCORD_UNAVAILABLE'});
 
-  const reviewChannelId=JOB_REVIEW_CHANNELS[jobType];
-  const reviewChannel=await client.channels.fetch(reviewChannelId).catch(()=>null);
-  if(!reviewChannel?.isTextBased())return res.status(503).json({error:'JOB_REVIEW_CHANNEL_INVALID'});
+  try{
+    await getJobReviewChannel(jobType);
+  }catch(e){
+    console.error('[JOB SUBMIT PREFLIGHT]',jobType,e.message);
+    return res.status(503).json({error:e.message||'JOB_REVIEW_CHANNEL_INVALID'});
+  }
 
   let created;
   await mutate(db=>{
@@ -1278,12 +1384,19 @@ async function checkLives(){
 app.use(express.static('public'));
 app.use((err,req,res,next)=>{
   console.error(err);
-  const map={CLOSED:403,BLOCKED:409,BANNED:403,COOLDOWN:429,NOT_PRE_ACCEPTED:403,ALREADY_BOOKED:409,SLOT_UNAVAILABLE:409,BOOKED:409,CORS_NOT_ALLOWED:403,CREATOR_INVALID:400,MISSING_TEAM_DATA:400,APPLICATION_NOT_FOUND:404,INVALID_STAGE:409,ADMIN_EXISTS:409,JOB_ALREADY_ACTIVE:409,JOB_ALREADY_PENDING:409,WORKSHOP_REQUIRED:400,JOB_ANSWERS_SHORT:400,JOB_AVAILABILITY_SHORT:400,INVALID_JOB_TYPE:400,JOB_DISCORD_UNAVAILABLE:503,JOB_REVIEW_CHANNEL_INVALID:503,JOB_REVIEW_SEND_FAILED:502};
+  const map={CLOSED:403,BLOCKED:409,BANNED:403,COOLDOWN:429,NOT_PRE_ACCEPTED:403,ALREADY_BOOKED:409,SLOT_UNAVAILABLE:409,BOOKED:409,CORS_NOT_ALLOWED:403,CREATOR_INVALID:400,MISSING_TEAM_DATA:400,APPLICATION_NOT_FOUND:404,INVALID_STAGE:409,ADMIN_EXISTS:409,JOB_ALREADY_ACTIVE:409,JOB_ALREADY_PENDING:409,WORKSHOP_REQUIRED:400,JOB_ANSWERS_SHORT:400,JOB_AVAILABILITY_SHORT:400,INVALID_JOB_TYPE:400,JOB_DISCORD_UNAVAILABLE:503,JOB_GUILD_NOT_FOUND:503,JOB_BOT_MEMBER_UNAVAILABLE:503,JOB_REVIEW_CHANNEL_MISSING:503,JOB_REVIEW_CHANNEL_NOT_FOUND:503,JOB_REVIEW_WRONG_GUILD:503,JOB_REVIEW_NOT_TEXT:503,JOB_REVIEW_NO_VIEW:503,JOB_REVIEW_NO_SEND:503,JOB_REVIEW_NO_EMBEDS:503,JOB_TICKET_TARGET_MISSING:503,JOB_TICKET_CATEGORY_NOT_FOUND:503,JOB_TICKET_TARGET_NOT_CATEGORY:503,JOB_TICKET_NO_VIEW:503,JOB_REVIEW_CHANNEL_INVALID:503,JOB_REVIEW_SEND_FAILED:502};
   res.status(map[err.message]||500).json({error:err.message||'SERVER_ERROR'});
 });
 
 const port=process.env.PORT||3000;
 app.listen(port,'0.0.0.0',()=>{console.log(`Turbo API ${BUILD_VERSION} listening on ${port}`);mutate(db=>{db.audit.push({at:Date.now(),by:'system',action:'system_deploy',build:BUILD_VERSION})}).catch(()=>{})});
 startBot().catch(e=>console.error('Discord bot failed:',e));
+setTimeout(async()=>{
+  try{
+    console.log('[JOB CONFIG PREFLIGHT]',JSON.stringify(await getJobConfigHealth(),null,2));
+  }catch(e){
+    console.error('[JOB CONFIG PREFLIGHT FAILED]',e);
+  }
+},8000);
 setInterval(checkLives,Math.max(1,Number(process.env.LIVE_CHECK_MINUTES||3))*60*1000);
 setTimeout(checkLives,5000);
