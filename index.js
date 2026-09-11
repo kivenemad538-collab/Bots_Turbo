@@ -59,11 +59,14 @@ const seed = {
   settings:{
     applicationsOpen:true,
     aboutText:'Turbo RP هو سيرفر رول بلاي عربي بنركز فيه على السيناريوهات والتفاعل وجودة التجربة.',
-    rules:[]
+    rules:[],
+    logoImage:'',
+    cityBackground:''
   },
   counters:{application:0},
   applications:[],
   creators:[],
+  teamMembers:[],
   interviewSlots:[],
   panelAdmins:[],
   audit:[]
@@ -116,7 +119,7 @@ async function readDB(){
   const pool=await ensurePg();
   if(pool){
     const result=await pool.query('SELECT data FROM turbo_state WHERE id=$1',['main']);
-    if(result.rows[0]?.data) return result.rows[0].data;
+    if(result.rows[0]?.data) return ensureNewWebsiteFields(result.rows[0].data);
     // أول تشغيل على قاعدة خارجية: لو فيه ملف قديم على نفس السيرفر، هيتنقل تلقائيًا.
     const old=await readLocalFile();
     const initial=old || structuredClone(seed);
@@ -125,13 +128,13 @@ async function readDB(){
        ON CONFLICT (id) DO UPDATE SET data=EXCLUDED.data, updated_at=NOW()`,
       ['main',JSON.stringify(initial)]
     );
-    return initial;
+    return ensureNewWebsiteFields(initial);
   }
   const local=await readLocalFile();
-  if(local) return local;
+  if(local) return ensureNewWebsiteFields(local);
   const initial=structuredClone(seed);
   await writeLocalFile(initial);
-  return initial;
+  return ensureNewWebsiteFields(initial);
 }
 
 async function writeDB(db){
@@ -167,6 +170,15 @@ function validateImportedDB(db){
     && Array.isArray(db.interviewSlots)
     && Array.isArray(db.panelAdmins)
     && Array.isArray(db.audit);
+}
+
+
+function ensureNewWebsiteFields(db){
+  if(!db.settings || typeof db.settings!=='object') db.settings={};
+  if(typeof db.settings.logoImage!=='string') db.settings.logoImage='';
+  if(typeof db.settings.cityBackground!=='string') db.settings.cityBackground='';
+  if(!Array.isArray(db.teamMembers)) db.teamMembers=[];
+  return db;
 }
 
 // ===================== AUTH =================================
@@ -297,7 +309,6 @@ async function postApplication(app){
   const e=new EmbedBuilder().setColor(color).setTitle(`تقديم #${app.number} — ${app.realName}`).setDescription(`<@${app.discordId}>`).addFields(
     {name:'العمر',value:String(app.age),inline:true},
     {name:'Discord',value:app.discordTag||app.discordId,inline:true},
-    {name:'نوع الشخصية',value:({criminal:'شخصية إجرامية',police:'شرطي',mechanic:'ميكانيكي',ems:'مسعف',lawyer:'محامي',civilian:'مدني',business:'رجل أعمال'})[app.characterType]||'غير محدد',inline:true},
     {name:'قصة الشخصية',value:app.story.slice(0,1000)},
     ...app.answers.map((a,i)=>({name:`س${i+1}: ${a.q}`.slice(0,256),value:(a.a||'—').slice(0,900)})),
     {name:'مراجعة القصة',value:'مراجعة يدوية — لا يتم عرض نسبة AI غير موثوقة.'.slice(0,1024)}
@@ -328,7 +339,7 @@ async function notifyInterview(app,slot){
 async function markVoicePassed(userId,by='admin'){
   let app;
   await mutate(db=>{
-    app=[...db.applications].reverse().find(a=>a.discordId===userId&&['pre_accepted','voice_review'].includes(a.status));
+    app=[...db.applications].reverse().find(a=>a.discordId===userId&&a.status==='pre_accepted');
     if(app){
       app.status='voice_passed';
       app.voicePassedAt=Date.now();
@@ -531,7 +542,14 @@ app.get('/health',(req,res)=>res.json({ok:true,name:'Turbo RP',time:new Date().t
 app.get('/api/public',asyncRoute(async(req,res)=>{
   const db=await readDB();
   res.json({
-    settings:{applicationsOpen:db.settings.applicationsOpen,aboutText:db.settings.aboutText,rules:db.settings.rules},
+    settings:{
+      applicationsOpen:db.settings.applicationsOpen,
+      aboutText:db.settings.aboutText,
+      rules:db.settings.rules,
+      logoImage:db.settings.logoImage||'',
+      cityBackground:db.settings.cityBackground||''
+    },
+    teamMembers:[...(db.teamMembers||[])].sort((a,b)=>(a.order||0)-(b.order||0)),
     creators:[...db.creators].sort((a,b)=>(a.order||0)-(b.order||0)),
     questions,
     interviewSlots:db.interviewSlots.filter(s=>!s.bookedBy&&new Date(s.at)>new Date()).sort((a,b)=>new Date(a.at)-new Date(b.at))
@@ -612,13 +630,11 @@ app.post('/api/audit/event',asyncRoute(async(req,res)=>{
 }));
 
 app.post('/api/applications',auth,asyncRoute(async(req,res)=>{
-  const {realName,age,story,answers,characterType}=req.body||{};
+  const {realName,age,story,answers}=req.body||{};
   if(!/^\S+\s+\S+/.test(String(realName||'').trim()))return res.status(400).json({error:'REAL_NAME_TWO_PARTS'});
   if(Number(age)<16||Number(age)>80)return res.status(400).json({error:'INVALID_AGE'});
   if(String(story||'').trim().length<120)return res.status(400).json({error:'STORY_TOO_SHORT'});
   if(!Array.isArray(answers)||answers.length!==questions.length||answers.some(x=>String(x||'').trim().length<10))return res.status(400).json({error:'ANSWERS_INCOMPLETE'});
-  const allowedCharacterTypes=['criminal','police','mechanic','ems','lawyer','civilian','business'];
-  if(!allowedCharacterTypes.includes(String(characterType||'')))return res.status(400).json({error:'INVALID_CHARACTER_TYPE'});
 
   let created;
   await mutate(db=>{
@@ -629,7 +645,7 @@ app.post('/api/applications',auth,asyncRoute(async(req,res)=>{
     db.counters.application=(db.counters.application||0)+1;
     created={
       id:crypto.randomUUID(),number:db.counters.application,discordId:req.user.id,discordTag:req.user.username,
-      realName:String(realName).trim(),age:Number(age),story:String(story).trim(),characterType:String(characterType),
+      realName:String(realName).trim(),age:Number(age),story:String(story).trim(),
       answers:questions.map((q,i)=>({q,a:String(answers[i]).trim()})),ai:inspectStory(story),
       status:'pending',createdAt:Date.now(),cooldownUntil:0
     };
@@ -717,11 +733,13 @@ app.get('/api/admin/storage-status',auth,owner,asyncRoute(async(req,res)=>{
 }));
 
 app.patch('/api/admin/settings',auth,admin,asyncRoute(async(req,res)=>{
-  const {applicationsOpen,aboutText,rules}=req.body;
+  const {applicationsOpen,aboutText,rules,logoImage,cityBackground}=req.body;
   await mutate(db=>{
     if(typeof applicationsOpen==='boolean')db.settings.applicationsOpen=applicationsOpen;
     if(typeof aboutText==='string')db.settings.aboutText=aboutText.slice(0,5000);
     if(Array.isArray(rules))db.settings.rules=rules.map(x=>String(x).slice(0,1000));
+    if(typeof logoImage==='string')db.settings.logoImage=logoImage.slice(0,900000);
+    if(typeof cityBackground==='string')db.settings.cityBackground=cityBackground.slice(0,4000);
     db.audit.push({at:Date.now(),by:req.user.id,action:'settings_update'});
   });
   res.json({ok:true});
@@ -851,6 +869,43 @@ app.post('/api/admin/applications/:id/action',auth,admin,asyncRoute(async(req,re
   res.json({ok:true,application:a});
 }));
 
+
+app.post('/api/admin/team-members',auth,admin,asyncRoute(async(req,res)=>{
+  const name=String(req.body?.name||'').trim().slice(0,80);
+  const rank=String(req.body?.rank||'').trim().slice(0,80);
+  const image=String(req.body?.image||'').trim().slice(0,2000);
+  const order=Number(req.body?.order||0);
+  if(!name||!rank||!image)return res.status(400).json({error:'MISSING_TEAM_DATA'});
+
+  const member={
+    id:crypto.randomUUID(),
+    name,
+    rank,
+    image,
+    order:Number.isFinite(order)?order:0,
+    createdAt:Date.now(),
+    createdBy:req.user.id
+  };
+
+  await mutate(db=>{
+    db.teamMembers=Array.isArray(db.teamMembers)?db.teamMembers:[];
+    db.teamMembers.push(member);
+    db.audit.push({at:Date.now(),by:req.user.id,action:'public_team_add',teamMemberId:member.id});
+  });
+
+  res.json({ok:true,member});
+}));
+
+app.delete('/api/admin/team-members/:id',auth,admin,asyncRoute(async(req,res)=>{
+  const id=String(req.params.id||'');
+  await mutate(db=>{
+    db.teamMembers=Array.isArray(db.teamMembers)?db.teamMembers:[];
+    db.teamMembers=db.teamMembers.filter(x=>x.id!==id);
+    db.audit.push({at:Date.now(),by:req.user.id,action:'public_team_remove',teamMemberId:id});
+  });
+  res.json({ok:true});
+}));
+
 app.post('/api/admin/creators',auth,admin,asyncRoute(async(req,res)=>{
   let c;
   await mutate(db=>{
@@ -909,7 +964,7 @@ async function checkLives(){
 app.use(express.static('public'));
 app.use((err,req,res,next)=>{
   console.error(err);
-  const map={CLOSED:403,BLOCKED:409,BANNED:403,COOLDOWN:429,NOT_PRE_ACCEPTED:403,ALREADY_BOOKED:409,SLOT_UNAVAILABLE:409,BOOKED:409,CORS_NOT_ALLOWED:403,CREATOR_INVALID:400,APPLICATION_NOT_FOUND:404,INVALID_STAGE:409,ADMIN_EXISTS:409};
+  const map={CLOSED:403,BLOCKED:409,COOLDOWN:429,NOT_PRE_ACCEPTED:403,ALREADY_BOOKED:409,SLOT_UNAVAILABLE:409,BOOKED:409,CORS_NOT_ALLOWED:403,CREATOR_INVALID:400};
   res.status(map[err.message]||500).json({error:err.message||'SERVER_ERROR'});
 });
 
