@@ -1,4 +1,4 @@
-Turbo Bot V21
+Legend Bot V21
 
 Latest supplied IDs:
 Jobs server: 1535337681842606230

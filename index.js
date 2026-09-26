@@ -1,5 +1,5 @@
 // ============================================================
-// TURBO RP - WEBSITE API + DISCORD BOT
+// LEGEND RP - WEBSITE API + DISCORD BOT
 // كل كود البوت والـ Backend موجود في الملف ده فقط.
 // عدّل الـ IDs هنا فقط. التوكن والـ Secrets لا تضعها هنا.
 // ============================================================
@@ -74,7 +74,7 @@ const seed = {
       police:{open:true},
       mechanic:{open:true,mode:'all',workshopId:''}
     },
-    aboutText:'Turbo RP هو سيرفر رول بلاي عربي بنركز فيه على السيناريوهات والتفاعل وجودة التجربة.',
+    aboutText:'Legend RP هو سيرفر رول بلاي عربي بنركز فيه على السيناريوهات والتفاعل وجودة التجربة.',
     rules:[],
     news:[],
     logoImage:'',
@@ -299,10 +299,10 @@ async function dm(userId,payload){
   }
 }
 
-function turboDmEmbed({title,description,fields=[],colorValue=color,footer='Turbo RP • Roleplay'}){
+function turboDmEmbed({title,description,fields=[],colorValue=color,footer='Legend RP • Roleplay'}){
   return new EmbedBuilder()
     .setColor(colorValue)
-    .setAuthor({name:'Turbo Application'})
+    .setAuthor({name:'Legend Application'})
     .setTitle(title)
     .setDescription(description||'')
     .addFields(fields)
@@ -353,7 +353,7 @@ async function notifyInterview(app,slot){
   const when=new Date(slot.at).toLocaleString('ar-EG',{dateStyle:'full',timeStyle:'short'});
   const embed=turboDmEmbed({
     title:'📅 تم حجز المقابلة الصوتية',
-    description:'تم تثبيت موعد المقابلة الصوتية الخاصة بك في **Turbo RP**.',
+    description:'تم تثبيت موعد المقابلة الصوتية الخاصة بك في **Legend RP**.',
     fields:[
       {name:'رقم التقديم',value:`#${app.number}`,inline:true},
       {name:'الموعد',value:when,inline:false},
@@ -381,7 +381,7 @@ async function markVoicePassed(userId,by='admin'){
     await role(userId,IDS.ENTRY_ROLE_ID,true);
     const embed=turboDmEmbed({
       title:'✅ تم قبولك نهائيًا',
-      description:'مبروك! تم اجتياز المقابلة الصوتية بنجاح وتم منحك **تصريح الدخول** إلى Turbo RP.',
+      description:'مبروك! تم اجتياز المقابلة الصوتية بنجاح وتم منحك **تصريح الدخول** إلى Legend RP.',
       fields:[
         {name:'الحالة',value:'مقبول نهائيًا',inline:true},
         {name:'الخطوة التالية',value:'يمكنك الآن الدخول للسيرفر وبدء تجربتك في الرول بلاي.',inline:false}
@@ -598,7 +598,7 @@ async function createJobTicket(job){
     type:ChannelType.GuildText,
     ...(parentId?{parent:parentId}:{}),
     permissionOverwrites:perms,
-    topic:`Turbo Job Application ${job.id} | ${job.realName}`
+    topic:`Legend Job Application ${job.id} | ${job.realName}`
   });
 
   const embed=new EmbedBuilder().setColor(0x3b8fb8).setTitle(`تذكرة قبول ${JOB_LABELS[job.type]}`).setDescription(applicantMember?`أهلًا <@${job.discordId}>، تم قبول تقديمك. الإدارة هتكمل معاك هنا.`:`تم قبول <@${job.discordId}> لكن العضو غير موجود داخل سيرفر الوظائف حاليًا.`).addFields(
@@ -720,7 +720,7 @@ async function startBot(){
       if(!job)return i.editReply({content:'❌ التقديم غير موجود.'});
       await dm(job.discordId,{embeds:[turboDmEmbed({title:`🔒 تم إغلاق تذكرة ${JOB_LABELS[job.type]||'الوظيفة'}`,description:`تم إغلاق تذكرتك بواسطة <@${i.user.id}>.\n**السبب:** ${reason.slice(0,500)}`,colorValue:0xef4444})]}).catch(()=>false);
       await i.editReply({content:'✅ تم تسجيل السبب وإرساله للمتقدم. سيتم إغلاق التذكرة خلال 3 ثواني.'});
-      setTimeout(()=>i.channel?.delete(`Turbo job ticket closed: ${reason}`.slice(0,500)).catch(()=>{}),3000);
+      setTimeout(()=>i.channel?.delete(`Legend job ticket closed: ${reason}`.slice(0,500)).catch(()=>{}),3000);
       return;
 
     } else if(i.isButton()&&(i.customId.startsWith('accept:')||i.customId.startsWith('reject:'))){
@@ -755,7 +755,7 @@ async function startBot(){
         try{ await role(app.discordId,IDS.VOICE_REVIEW_ROLE_ID,false); await role(app.discordId,IDS.PRE_ACCEPTED_ROLE_ID,true); }catch{ roleOk=false; }
         const acceptEmbed=turboDmEmbed({
           title:'✅ تم قبول تقديمك مبدئيًا',
-          description:'مبروك! تم قبول طلبك مبدئيًا في **Turbo RP**.',
+          description:'مبروك! تم قبول طلبك مبدئيًا في **Legend RP**.',
           fields:[
             {name:'رقم التقديم',value:`#${app.number}`,inline:true},
             {name:'الحالة',value:'مقبول مبدئيًا',inline:true},
@@ -816,7 +816,7 @@ async function startBot(){
 
       const rejectEmbed=turboDmEmbed({
         title:'❌ تم رفض التقديم',
-        description:'تمت مراجعة تقديمك في **Turbo RP** ولم يتم قبوله هذه المرة.',
+        description:'تمت مراجعة تقديمك في **Legend RP** ولم يتم قبوله هذه المرة.',
         fields:[
           {name:'رقم التقديم',value:`#${app.number}`,inline:true},
           {name:'الحالة',value:'مرفوض',inline:true},
@@ -870,7 +870,7 @@ const questions=[
   'لو اتعرضت لتهديد بسلاح، هتتصرف إزاي؟',
   'هل ينفع تخرج من السيرفر أثناء سيناريو علشان تتجنب نتيجته؟ وضّح.',
   'لو عرفت معلومة من Discord خارج اللعبة، هل ينفع تستخدمها داخل الشخصية؟',
-  'احكي باختصار سيناريو رول بلاي تحب تعمله داخل Turbo RP.'
+  'احكي باختصار سيناريو رول بلاي تحب تعمله داخل Legend RP.'
 ];
 
 function parseCookies(req){
@@ -889,7 +889,7 @@ function requireEnv(){
 }
 requireEnv();
 
-app.get('/health',(req,res)=>res.json({ok:true,name:'Turbo RP',time:new Date().toISOString()}));
+app.get('/health',(req,res)=>res.json({ok:true,name:'Legend RP',time:new Date().toISOString()}));
 app.get('/api/public',asyncRoute(async(req,res)=>{
   const db=await readDB();
   res.json({
@@ -1039,7 +1039,7 @@ app.post('/api/admin/password-login',asyncRoute(async(req,res)=>{
   const a=Buffer.from(given),b=Buffer.from(expected);
   const ok=a.length===b.length && crypto.timingSafeEqual(a,b);
   if(!ok) return res.status(401).json({error:'INVALID_ADMIN_PASSWORD'});
-  const token=signToken({id:'panel-password',username:'Turbo Admin',roles:[],panelAdmin:true},6*3600);
+  const token=signToken({id:'panel-password',username:'Legend Admin',roles:[],panelAdmin:true},6*3600);
   res.json({ok:true,token,expiresIn:6*3600});
 }));
 
@@ -1213,7 +1213,7 @@ app.post('/api/admin/applications/:id/action',auth,admin,asyncRoute(async(req,re
   if(action==='pre_accept'){
     await role(a.discordId,IDS.VOICE_REVIEW_ROLE_ID,false);
     await role(a.discordId,IDS.PRE_ACCEPTED_ROLE_ID,true);
-    await dm(a.discordId,{embeds:[turboDmEmbed({title:'✅ تم قبول تقديمك مبدئيًا',description:'تم قبول طلبك مبدئيًا في **Turbo RP**.',fields:[{name:'رقم التقديم',value:`#${a.number}`,inline:true},{name:'الخطوة التالية',value:'ادخل الموقع واختر موعد المقابلة الصوتية.',inline:false}],colorValue:0x22c55e})]});
+    await dm(a.discordId,{embeds:[turboDmEmbed({title:'✅ تم قبول تقديمك مبدئيًا',description:'تم قبول طلبك مبدئيًا في **Legend RP**.',fields:[{name:'رقم التقديم',value:`#${a.number}`,inline:true},{name:'الخطوة التالية',value:'ادخل الموقع واختر موعد المقابلة الصوتية.',inline:false}],colorValue:0x22c55e})]});
     await updateReviewMessage(a,`✅ قبول مبدئي من لوحة التحكم بواسطة <@${req.user.id}>`);
   }else if(action==='reject'){
     await role(a.discordId,IDS.VOICE_REVIEW_ROLE_ID,false);
@@ -1457,7 +1457,7 @@ app.use((err,req,res,next)=>{
 });
 
 const port=process.env.PORT||3000;
-app.listen(port,'0.0.0.0',()=>{console.log(`Turbo API ${BUILD_VERSION} listening on ${port}`);mutate(db=>{db.audit.push({at:Date.now(),by:'system',action:'system_deploy',build:BUILD_VERSION})}).catch(()=>{})});
+app.listen(port,'0.0.0.0',()=>{console.log(`Legend API ${BUILD_VERSION} listening on ${port}`);mutate(db=>{db.audit.push({at:Date.now(),by:'system',action:'system_deploy',build:BUILD_VERSION})}).catch(()=>{})});
 startBot().catch(e=>console.error('Discord bot failed:',e));
 setTimeout(async()=>{
   try{

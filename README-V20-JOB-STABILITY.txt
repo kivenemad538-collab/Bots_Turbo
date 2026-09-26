@@ -1,4 +1,4 @@
-Turbo Bot V20 — Job Applications Stable
+Legend Bot V20 — Job Applications Stable
 
 Fixes:
 - Job review Accept/Reject buttons now have real Discord interaction handlers.

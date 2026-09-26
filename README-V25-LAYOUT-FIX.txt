@@ -1,4 +1,4 @@
-Turbo Website V25 - Layout Repair
+Legend Website V25 - Layout Repair
 
 This version keeps V24 features and fixes the broken layout visible in the screenshots:
 - Hero text/logo can no longer split outside the container.

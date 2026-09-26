@@ -1,4 +1,4 @@
-Bots Turbo V22
+Bots Legend V22
 - Job ticket claim/close restricted to role 1547782805495484497.
 - Closing a job ticket opens a required reason modal.
 - Close reason is saved to audit/data and sent by DM to the applicant.

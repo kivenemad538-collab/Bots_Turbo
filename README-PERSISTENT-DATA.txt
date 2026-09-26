@@ -1,4 +1,4 @@
-TURBO RP - حفظ البيانات عند تغيير حساب Railway
+LEGEND RP - حفظ البيانات عند تغيير حساب Railway
 
 تم إضافة طريقتين للحماية:
 1) PostgreSQL خارجي عبر DATABASE_URL (الموصى به).

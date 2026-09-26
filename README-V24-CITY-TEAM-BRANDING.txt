@@ -1,4 +1,4 @@
-Turbo Website V24
+Legend Website V24
 
 Requested changes implemented:
 - Overall site scale reduced and spacing tightened.
@@ -7,7 +7,7 @@ Requested changes implemented:
 - Admin can set a city background URL; the background automatically pans/zooms.
 - Added missing branding controls in Admin.
 - Admin can set logo by URL or upload a small logo file (stored in site settings).
-- All Turbo logo placements update from the branding setting.
+- All Legend logo placements update from the branding setting.
 - Added public Team section.
 - Public Team is completely separate from panel Admin/Manager/Owner permissions.
 - Admin manually types each public member's display rank.

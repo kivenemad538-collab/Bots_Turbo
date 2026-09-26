@@ -1,4 +1,4 @@
-Turbo Bot V19
+Legend Bot V19
 Job application Discord routing:
 Guild: 1535337681842606230
 EMS review: 1547780819240882327 -> ticket category 1535337797169320078

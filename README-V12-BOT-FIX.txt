@@ -1,8 +1,8 @@
-Turbo RP Bot V12 compatibility fix
+Legend RP Bot V12 compatibility fix
 ==================================
 Manager Discord User ID: 1445069224899907709
 
-This bot backend now matches Turbo Website V12 and supports:
+This bot backend now matches Legend Website V12 and supports:
 - Manager-only panel admin management by Discord User ID
 - Application actions: pre-accept, reject, voice review, voice pass, voice reject, permanent ban, reset
 - Discord DM notifications for application and voice-stage decisions

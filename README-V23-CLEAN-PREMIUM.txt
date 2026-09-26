@@ -1,9 +1,9 @@
-Turbo Website V23
+Legend Website V23
 
 Main visual fixes from V22:
 - Removed the oversized empty feeling.
 - Hero is tighter, balanced, and easier to read.
-- Circular Turbo logo presentation preserved.
+- Circular Legend logo presentation preserved.
 - Navbar and banner proportions reduced.
 - Server status bar is cleaner.
 - Rules gate redesigned into a compact premium panel.

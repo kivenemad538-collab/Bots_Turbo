@@ -50,7 +50,7 @@ const DEFAULT_RULE_GROUPS = [
     'الخلافات بين العصابات يجب أن تبدأ بسبب رول بلاي واضح، وليس لمجرد البحث عن إطلاق نار.',
     'يمنع تحويل كل تفاعل إلى قتال؛ التفاوض والتهديد والتصعيد التدريجي جزء أساسي من الرول بلاي.',
     'يمنع التحالف المؤقت غير المنطقي فقط للحصول على أفضلية عددية في قتال قائم.',
-    'احترم حدود السيناريو وأي قيود عددية أو تنظيمية تعلنها إدارة Turbo للأحداث والعصابات.'
+    'احترم حدود السيناريو وأي قيود عددية أو تنظيمية تعلنها إدارة Legend للأحداث والعصابات.'
   ]],
   ['المناطق الآمنة والتفاعل',[
     'يمنع بدء أعمال عدائية في المناطق التي تحددها الإدارة كمناطق آمنة إلا إذا نصت قواعد حدث على غير ذلك.',
@@ -159,7 +159,7 @@ async function init(){
 
 function renderOffline(msg='الموقع جاهز، لكن رابط Railway لسه محتاج يتضاف في config.js.'){
   $('#applyState').textContent='الربط غير مكتمل';
-  $('#aboutText').textContent='Turbo RP هو سيرفر رول بلاي عربي يهتم بالسيناريوهات وجودة التجربة وتفاعل اللاعبين.';
+  $('#aboutText').textContent='Legend RP هو سيرفر رول بلاي عربي يهتم بالسيناريوهات وجودة التجربة وتفاعل اللاعبين.';
   $('#creatorGrid').innerHTML='<div class="notice">صناع المحتوى هيظهروا هنا بعد اتصال الموقع بالبوت.</div>';
   renderRules([]);
   $('#applyBox').innerHTML=`<div class="notice bad">${esc(msg)}</div><br><button class="discord-btn" onclick="oauthLogin()">تسجيل دخول Discord</button>`;
@@ -181,11 +181,11 @@ function renderMe(){
 }
 function renderApply(){
   const box=$('#applyBox');
-  if(!token){box.innerHTML=`<div class="vision-form-empty"><div class="vision-form-icon">T</div><h3>ابدأ تقديم Turbo RP</h3><p>سجّل بحساب Discord الأول علشان التقديم يتربط بحسابك تلقائيًا.</p><button class="discord-btn" onclick="oauthLogin()"><span class="discord-dot">◈</span><span>تسجيل الدخول بـ Discord</span></button></div>`;return}
+  if(!token){box.innerHTML=`<div class="vision-form-empty"><div class="vision-form-icon">T</div><h3>ابدأ تقديم Legend RP</h3><p>سجّل بحساب Discord الأول علشان التقديم يتربط بحسابك تلقائيًا.</p><button class="discord-btn" onclick="oauthLogin()"><span class="discord-dot">◈</span><span>تسجيل الدخول بـ Discord</span></button></div>`;return}
   if(!pub.settings.applicationsOpen){box.innerHTML='<div class="notice bad">التقديم مغلق حاليًا من الإدارة.</div>';return}
   if(me&&!me.canApply){let extra='';if(['rejected','voice_rejected'].includes(me.latest?.status)&&me.waitMs>0)extra=`<p>تقدر تقدم تاني بعد: <b id="countdown"></b></p>`;if(me.latest?.status==='banned')extra='<p>الحساب ده عليه حظر دائم من التقديم.</p>';box.innerHTML=`<div class="notice bad">زر التقديم غير متاح لحسابك حاليًا. ${extra}</div>`;if(me.waitMs>0)countdown();return}
   box.innerHTML=`<form id="applyForm" class="vision-form">
-    <div class="vision-form-head"><div><span>TURBO APPLICATION</span><h3>تقديم دخول المدينة</h3><p>جاوب بهدوء وبأسلوبك. كل إجابة بتظهر للإدارة كما كتبتها.</p></div><div class="vision-form-step">01</div></div>
+    <div class="vision-form-head"><div><span>LEGEND APPLICATION</span><h3>تقديم دخول المدينة</h3><p>جاوب بهدوء وبأسلوبك. كل إجابة بتظهر للإدارة كما كتبتها.</p></div><div class="vision-form-step">01</div></div>
     <div class="vision-form-section"><div class="vision-section-title"><span>01</span><div><b>بياناتك الأساسية</b><small>Basic information</small></div></div><div class="form-grid"><div class="field"><label>الاسم الحقيقي ثنائي</label><input name="realName" required placeholder="الاسم الأول واسم العائلة"></div><div class="field"><label>العمر</label><input name="age" type="number" min="16" max="80" required placeholder="مثال: 21"></div></div></div>
     <div class="vision-form-section"><div class="vision-section-title"><span>02</span><div><b>قصة الشخصية</b><small>Character story</small></div></div><div class="field full"><textarea name="story" minlength="120" required placeholder="اكتب قصة شخصيتك بنفسك... مين هي؟ جاية منين؟ وإيه هدفها في المدينة؟"></textarea></div></div>
     <div class="vision-form-section"><div class="vision-section-title"><span>03</span><div><b>أسئلة الرول بلاي</b><small>Roleplay questions</small></div></div>${pub.questions.map((q,i)=>`<div class="vision-question"><div class="vision-q-number">${String(i+1).padStart(2,'0')}</div><div class="vision-q-body"><strong>${esc(q)}</strong><textarea name="q${i}" required minlength="10" placeholder="اكتب إجابتك هنا..."></textarea></div></div>`).join('')}</div>
@@ -306,14 +306,14 @@ async function renderAdmin(){
     </div>`:'';
 
   $('#adminBox').innerHTML=`<div class="admin-dashboard">
-    <div class="admin-topline"><div><span>TURBO CONTROL</span><h3>لوحة التحكم</h3></div><div class="admin-viewer">${viewerLabel}</div></div>
+    <div class="admin-topline"><div><span>LEGEND CONTROL</span><h3>لوحة التحكم</h3></div><div class="admin-viewer">${viewerLabel}</div></div>
     <div class="admin-summary"><div class="admin-stat"><b>${st.applications.length}</b><span>كل التقديمات</span></div><div class="admin-stat"><b>${st.applications.filter(a=>a.status==='pending').length}</b><span>قيد المراجعة</span></div><div class="admin-stat"><b>${st.applications.filter(a=>['pre_accepted','voice_review'].includes(a.status)).length}</b><span>المرحلة الثانية</span></div><div class="admin-stat"><b>${st.applications.filter(a=>a.status==='voice_passed').length}</b><span>مقبولين نهائيًا</span></div></div>
     <div class="admin-control-grid"><div class="card admin-settings-card"><h3>حالة التقديم</h3><p>الحالة الحالية: <b>${st.settings.applicationsOpen?'مفتوح':'مغلق'}</b></p><button class="${st.settings.applicationsOpen?'danger':'btn primary'}" onclick="toggleApps(${!st.settings.applicationsOpen})">${st.settings.applicationsOpen?'قفل التقديم':'فتح التقديم'}</button></div>${staffControls}${ownerControls}</div>
     <div class="card applications-card"><div class="applications-toolbar"><div><span>APPLICATION REVIEW</span><h3>مراجعة التقديمات</h3></div><div class="application-search"><input id="applicationSearch" placeholder="ابحث بالاسم أو Discord ID أو رقم التقديم" oninput="filterApplications()"><span>⌕</span></div></div><div class="application-filters"><button class="application-filter-btn active" data-filter="all" onclick="setApplicationFilter('all')">الكل</button><button class="application-filter-btn" data-filter="review" onclick="setApplicationFilter('review')">قيد المراجعة</button><button class="application-filter-btn" data-filter="accepted" onclick="setApplicationFilter('accepted')">المقبولين</button><button class="application-filter-btn" data-filter="rejected" onclick="setApplicationFilter('rejected')">المرفوضين / المحظورين</button></div><div id="applicationList" class="application-list"></div></div>
     <div class="admin-grid"><div class="card"><h3>إضافة صانع محتوى</h3><form id="creatorForm" class="form-grid"><div class="field"><input name="name" placeholder="الاسم" required></div><div class="field"><input name="order" type="number" placeholder="الترتيب" value="1"></div><div class="field full"><input name="image" placeholder="لينك الصورة" required></div><div class="field full"><input name="url" placeholder="لينك الصفحة" required></div><div class="field"><select name="platform"><option value="youtube">YouTube</option><option value="twitch">Twitch</option><option value="other">Other</option></select></div><div class="field"><input name="platformId" placeholder="Channel ID / Twitch login"></div><button class="btn primary" type="submit">إضافة</button></form><div class="list">${st.creators.map(c=>`<div class="item"><span>${esc(c.name)} ${c.isLive?'🔴':''}</span><button class="danger" onclick="delCreator('${c.id}')">حذف</button></div>`).join('')}</div></div><div class="card"><h3>مواعيد المقابلات</h3><form id="slotForm"><div class="field"><input name="at" type="datetime-local" required></div><div class="field"><input name="note" placeholder="ملاحظة / روم المقابلة"></div><br><button class="btn primary" id="addSlotBtn" type="submit">إضافة موعد</button></form><div class="list">${st.interviewSlots.map(s=>`<div class="item"><span>${new Date(s.at).toLocaleString('ar-EG')} ${s.bookedBy?'• محجوز':''}</span>${!s.bookedBy?`<button class="danger" onclick="delSlot('${s.id}')">حذف</button>`:''}</div>`).join('')}</div></div></div>
     <div id="applicationReview" class="application-review hidden"></div>
     <div class="card staff-directory-card">
-      <div class="staff-directory-head"><div><span>STAFF DIRECTORY</span><h3>إدارة Turbo</h3></div><span class="staff-count">${(st.staffDirectory||[]).length} إداري</span></div>
+      <div class="staff-directory-head"><div><span>STAFF DIRECTORY</span><h3>إدارة Legend</h3></div><span class="staff-count">${(st.staffDirectory||[]).length} إداري</span></div>
       <p>القائمة دي بتظهر فقط للـ Admin والـ Manager والـ Owner.</p>
       <div class="staff-directory-grid">${(st.staffDirectory||[]).map(a=>staffCard(a,false)).join('')||'<div class="notice">لا توجد بيانات إداريين.</div>'}</div>
     </div>
@@ -531,7 +531,7 @@ init();
   mo.observe(document.body,{childList:true,subtree:true});
 })();
 
-// ===== V11: animated TURBO loader on actionable clicks =====
+// ===== V11: animated LEGEND loader on actionable clicks =====
 (()=>{
   const loader=document.getElementById('turboActionLoader');
   if(!loader) return;

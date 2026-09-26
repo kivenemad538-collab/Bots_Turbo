@@ -1,11 +1,11 @@
-Turbo Website V22
+Legend Website V22
 
 Updated from V21 using the reference screenshots supplied by the user.
 
 Changes:
 - Reworked page proportions and spacing to match the dark premium RP style in the reference.
 - Rounded floating navbar.
-- New hero layout with large circular Turbo logo.
+- New hero layout with large circular Legend logo.
 - Replaced the old logo with server-icon(5).png.
 - Replaced the banner with Turbo-Roleplay-Luxury-Exactly-Two-Strips.gif.
 - Logo is presented inside a circular frame everywhere possible.

@@ -1,4 +1,4 @@
-Turbo Bot V17
+Legend Bot V17
 - Persistent audit log in db.audit + admin export endpoint.
 - Deployment events are logged as system_deploy.
 - Owner ID is forced to OWNER.

@@ -1,4 +1,4 @@
-Turbo Website V18
+Legend Website V18
 - Visual CSS restored from the user-provided V16.1 package.
 - V17 unified Application / Application Status behavior is retained.
 - V17 audit hooks and newer functionality are retained.

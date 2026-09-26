@@ -1,8 +1,8 @@
-Turbo Bot V18 — Website Team + Branding Sync
+Legend Bot V18 — Website Team + Branding Sync
 
 This fixes the website Admin error "تعذر إضافة الشخص".
 
-Added API routes required by the current Turbo website:
+Added API routes required by the current Legend website:
 - POST /api/admin/team-members
 - DELETE /api/admin/team-members/:id
 

@@ -1,4 +1,4 @@
-Turbo Bot V23
+Legend Bot V23
 
 Job applications are now controlled per job:
 - EMS: open / closed

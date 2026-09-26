@@ -1,4 +1,4 @@
-TURBO RP V12 - Manager + Application Review
+LEGEND RP V12 - Manager + Application Review
 
 Manager Discord User ID:
 1445069224899907709
