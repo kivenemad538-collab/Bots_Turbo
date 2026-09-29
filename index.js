@@ -1,3 +1,4 @@
+import { installStore } from './store-api.js';
 // ============================================================
 // LEGEND RP - WEBSITE API + DISCORD BOT
 // كل كود البوت والـ Backend موجود في الملف ده فقط.
@@ -1449,6 +1450,7 @@ async function checkLives(){
   }
 }
 
+installStore({app,auth,admin,readDB,mutate,dm,frontendUrl,crypto,asyncRoute});
 app.use(express.static('public'));
 app.use((err,req,res,next)=>{
   console.error(err);
