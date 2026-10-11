@@ -1,3 +1,4 @@
+import { installCreators } from './creator-api.js';
 import { installStore } from './store-api.js';
 // ============================================================
 // LEGEND RP - WEBSITE API + DISCORD BOT
@@ -15,7 +16,7 @@ import {
   ModalBuilder, TextInputBuilder, TextInputStyle, Events, PermissionFlagsBits, ChannelType
 } from 'discord.js';
 
-const BUILD_VERSION = 'V35-PANEL-ALLOWLIST-ONLY';
+const BUILD_VERSION = 'LEGEND-V16-CREATOR-WORKFLOW';
 
 // ===================== DISCORD IDs ===========================
 const IDS = {
@@ -197,6 +198,8 @@ function ensureNewWebsiteFields(db){
   if(!db.settings || typeof db.settings!=='object') db.settings={};
   if(typeof db.settings.logoImage!=='string') db.settings.logoImage='';
   if(typeof db.settings.cityBackground!=='string') db.settings.cityBackground='';
+  if(!Array.isArray(db.creatorApplications))db.creatorApplications=[];
+  if(typeof db.settings.creatorApplicationsOpen!=='boolean')db.settings.creatorApplicationsOpen=true;
   if(!Array.isArray(db.teamMembers)) db.teamMembers=[];
   if(!db.counters || typeof db.counters!=='object') db.counters={application:0,jobApplication:0};
   if(typeof db.counters.jobApplication!=='number') db.counters.jobApplication=0;
@@ -640,6 +643,7 @@ app.get('/api/public',asyncRoute(async(req,res)=>{
   res.json({
     settings:{
       applicationsOpen:db.settings.applicationsOpen,
+      creatorApplicationsOpen:db.settings.creatorApplicationsOpen!==false,
       jobApplicationsOpen:db.settings.jobApplicationsOpen!==false,
       jobApplicationAccess:db.settings.jobApplicationAccess,
       aboutText:db.settings.aboutText,
@@ -698,10 +702,17 @@ app.get('/auth/discord/callback',asyncRoute(async(req,res)=>{
   res.redirect(`${frontendUrl}/#token=${encodeURIComponent(token)}`);
 }));
 
+function latestApplicationFor(db,discordId){
+  return [...db.applications].reverse().filter(a=>a.discordId===discordId).sort((a,b)=>b.createdAt-a.createdAt)[0]||null;
+}
+function visibleApplicationFor(db,discordId){
+  const latest=latestApplicationFor(db,discordId);
+  return latest?.status==='reset'?null:latest;
+}
+
 app.get('/api/me',auth,asyncRoute(async(req,res)=>{
   const db=await readDB();
-  const apps=db.applications.filter(a=>a.discordId===req.user.id).sort((a,b)=>b.createdAt-a.createdAt);
-  const latest=apps[0]||null;
+  const latest=visibleApplicationFor(db,req.user.id);
   let canApply=db.settings.applicationsOpen,waitMs=0;
   if(latest){
     if(['pending','pre_accepted','voice_review','voice_passed','banned'].includes(latest.status))canApply=false;
@@ -742,7 +753,7 @@ app.post('/api/applications',auth,asyncRoute(async(req,res)=>{
   let created;
   await mutate(db=>{
     if(!db.settings.applicationsOpen)throw new Error('CLOSED');
-    const latest=[...db.applications].reverse().find(a=>a.discordId===req.user.id);
+    const latest=latestApplicationFor(db,req.user.id);
     if(latest&&['pending','pre_accepted','voice_review','voice_passed','banned'].includes(latest.status))throw new Error(latest.status==='banned'?'BANNED':'BLOCKED');
     if(latest&&['rejected','voice_rejected'].includes(latest.status)&&latest.cooldownUntil>Date.now())throw new Error('COOLDOWN');
     db.counters.application=(db.counters.application||0)+1;
@@ -755,9 +766,11 @@ app.post('/api/applications',auth,asyncRoute(async(req,res)=>{
     db.applications.push(created);
     db.audit.push({at:Date.now(),by:req.user.id,action:'application_create',applicationId:created.id});
   });
-  await role(created.discordId,IDS.VOICE_REVIEW_ROLE_ID,true);
-  await postApplication(created);
+  // The database save is authoritative. Discord latency cannot turn a saved request into an error.
   res.json({ok:true,application:created});
+  try{await role(created.discordId,IDS.VOICE_REVIEW_ROLE_ID,true);await postApplication(created);}
+  catch(e){console.error('Saved application Discord notification failed:',created.id,e.message);}
+
 }));
 
 app.post('/api/interviews/:slotId/book',auth,asyncRoute(async(req,res)=>{
@@ -937,6 +950,7 @@ app.post('/api/admin/applications/:id/action',auth,admin,asyncRoute(async(req,re
       for(const slot of db.interviewSlots){if(slot.bookedBy===a.discordId){slot.bookedBy=null;slot.applicationId=null}}
       a.interviewSlotId=null;
     }else if(action==='reset'){
+      if(latestApplicationFor(db,a.discordId)?.id!==a.id)throw new Error('NEWER_APPLICATION_EXISTS');
       a.status='reset';a.reason='';a.cooldownUntil=0;a.interviewSlotId=null;
       for(const slot of db.interviewSlots){if(slot.bookedBy===a.discordId){slot.bookedBy=null;slot.applicationId=null}}
     }
@@ -1089,8 +1103,8 @@ app.post('/api/admin/interviews',auth,admin,asyncRoute(async(req,res)=>{
 app.delete('/api/admin/interviews/:id',auth,admin,asyncRoute(async(req,res)=>{await mutate(db=>{const s=db.interviewSlots.find(x=>x.id===req.params.id);if(s?.bookedBy)throw new Error('BOOKED');db.interviewSlots=db.interviewSlots.filter(x=>x.id!==req.params.id);db.audit.push({at:Date.now(),by:req.user.id,action:'interview_remove',slotId:req.params.id})});res.json({ok:true})}));
 app.post('/api/admin/users/:discordId/reset',auth,admin,asyncRoute(async(req,res)=>{
   await mutate(db=>{
-    const latest=[...db.applications].reverse().find(a=>a.discordId===req.params.discordId);
-    if(latest){latest.status='reset';latest.cooldownUntil=0;latest.interviewSlotId=null}
+    const latest=latestApplicationFor(db,req.params.discordId);
+    if(latest){latest.status='reset';latest.reason='';latest.cooldownUntil=0;latest.interviewSlotId=null}
     for(const slot of db.interviewSlots){if(slot.bookedBy===req.params.discordId){slot.bookedBy=null;slot.applicationId=null}}
     db.audit.push({at:Date.now(),by:req.user.id,action:'reset_apply',userId:req.params.discordId});
   });
@@ -1123,6 +1137,7 @@ async function checkLives(){
   }
 }
 
+const bindCreatorDiscord=installCreators({app,auth,admin,readDB,mutate,dm,frontendUrl,crypto,asyncRoute,getClient:()=>client,IDS,isAdmin});
 installStore({app,auth,admin,readDB,mutate,dm,frontendUrl,crypto,asyncRoute});
 app.use(express.static('public'));
 app.use((err,req,res,next)=>{
@@ -1134,5 +1149,6 @@ app.use((err,req,res,next)=>{
 const port=process.env.PORT||3000;
 app.listen(port,'0.0.0.0',()=>{console.log(`Legend API ${BUILD_VERSION} listening on ${port}`);mutate(db=>{db.audit.push({at:Date.now(),by:'system',action:'system_deploy',build:BUILD_VERSION})}).catch(()=>{})});
 startBot().catch(e=>console.error('Discord bot failed:',e));
+bindCreatorDiscord();
 setInterval(checkLives,Math.max(1,Number(process.env.LIVE_CHECK_MINUTES||3))*60*1000);
 setTimeout(checkLives,5000);
