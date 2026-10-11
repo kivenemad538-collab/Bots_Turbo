@@ -15,7 +15,7 @@ import {
   ModalBuilder, TextInputBuilder, TextInputStyle, Events, PermissionFlagsBits, ChannelType
 } from 'discord.js';
 
-const BUILD_VERSION = 'V23-PER-JOB-OPEN-CLOSE';
+const BUILD_VERSION = 'V35-PANEL-ALLOWLIST-ONLY';
 
 // ===================== DISCORD IDs ===========================
 const IDS = {
@@ -36,7 +36,7 @@ const IDS = {
   JOB_REVIEW_MECHANIC_CHANNEL_ID: '1547781785067327498',
   JOB_TICKET_EMS_CATEGORY_ID: '1535337797169320078',
   JOB_TICKET_POLICE_CATEGORY_ID: '1535338633572388977',
-  JOB_TICKET_MECHANIC_CATEGORY_ID: '1535338633572388977',
+  JOB_TICKET_MECHANIC_CATEGORY_ID: '1535349054765142178',
 
 
   // حط كل رولات الإدارة اللي مسموح لها تراجع وتتحكم
@@ -139,7 +139,7 @@ async function readDB(){
   const pool=await ensurePg();
   if(pool){
     const result=await pool.query('SELECT data FROM turbo_state WHERE id=$1',['main']);
-    if(result.rows[0]?.data) return ensureWebsiteFields(result.rows[0].data);
+    if(result.rows[0]?.data) return ensureNewWebsiteFields(result.rows[0].data);
     // أول تشغيل على قاعدة خارجية: لو فيه ملف قديم على نفس السيرفر، هيتنقل تلقائيًا.
     const old=await readLocalFile();
     const initial=old || structuredClone(seed);
@@ -148,13 +148,13 @@ async function readDB(){
        ON CONFLICT (id) DO UPDATE SET data=EXCLUDED.data, updated_at=NOW()`,
       ['main',JSON.stringify(initial)]
     );
-    return ensureWebsiteFields(initial);
+    return ensureNewWebsiteFields(initial);
   }
   const local=await readLocalFile();
-  if(local) return ensureWebsiteFields(local);
+  if(local) return ensureNewWebsiteFields(local);
   const initial=structuredClone(seed);
   await writeLocalFile(initial);
-  return ensureWebsiteFields(initial);
+  return ensureNewWebsiteFields(initial);
 }
 
 async function writeDB(db){
@@ -193,13 +193,12 @@ function validateImportedDB(db){
 }
 
 
-function ensureWebsiteFields(db){
+function ensureNewWebsiteFields(db){
   if(!db.settings || typeof db.settings!=='object') db.settings={};
   if(typeof db.settings.logoImage!=='string') db.settings.logoImage='';
   if(typeof db.settings.cityBackground!=='string') db.settings.cityBackground='';
   if(!Array.isArray(db.teamMembers)) db.teamMembers=[];
   if(!db.counters || typeof db.counters!=='object') db.counters={application:0,jobApplication:0};
-  if(typeof db.counters.application!=='number') db.counters.application=0;
   if(typeof db.counters.jobApplication!=='number') db.counters.jobApplication=0;
   if(!Array.isArray(db.jobApplications)) db.jobApplications=[];
   if(!Array.isArray(db.settings.news)) db.settings.news=[];
@@ -215,14 +214,11 @@ function signToken(user, ttl=7*24*3600){const payload=b64({...user,exp:Math.floo
 function verifyToken(token){try{const [p,s]=String(token||'').split('.');const good=crypto.createHmac('sha256',secret()).update(p).digest('base64url');if(!crypto.timingSafeEqual(Buffer.from(s),Buffer.from(good)))return null;const d=JSON.parse(Buffer.from(p,'base64url').toString());if(d.exp<Date.now()/1000)return null;return d}catch{return null}}
 function auth(req,res,next){const token=(req.headers.authorization||'').replace(/^Bearer\s+/i,'');const user=verifyToken(token);if(!user)return res.status(401).json({error:'LOGIN_REQUIRED'});req.user=user;next()}
 function isOwner(user){return String(user?.id||'')===String(IDS.OWNER_USER_ID)}
-function hasRoleAdmin(user){const ids=IDS.ADMIN_ROLE_IDS.filter(Boolean);return !!user?.roles?.some(r=>ids.includes(r))}
 function panelStaffEntry(user,db){return db?.panelAdmins?.find(a=>String(a.discordId)===String(user?.id))}
 function panelStaffRole(user,db){
   if(isOwner(user))return 'owner';
-  if(user?.panelAdmin===true)return 'admin';
   const entry=panelStaffEntry(user,db);
   if(entry)return entry.role==='manager'?'manager':'admin';
-  if(hasRoleAdmin(user))return 'admin';
   return null;
 }
 function isManager(user,db){const r=panelStaffRole(user,db);return r==='owner'||r==='manager'}
@@ -292,7 +288,9 @@ async function dm(userId,payload){
   if(!client?.isReady()) return false;
   try{
     const u=await client.users.fetch(userId);
-    await u.send(typeof payload==='string'?{content:payload}:payload);
+    let message=typeof payload==='string'?{content:payload}:payload;
+    if(message?.content&&!message.embeds){message={...message,content:undefined,embeds:[new EmbedBuilder().setColor(0x3978ff).setAuthor({name:'LEGEND / إشعار جديد'}).setTitle('تحديث من مدينة Legend').setDescription(String(message.content).slice(0,3800)).setImage(frontendUrl+'/legend-preview.png').setFooter({text:'LEGEND • تابع التفاصيل من حسابك على الموقع'}).setTimestamp()]};}
+    await u.send(message);
     return true;
   }catch(e){
     console.warn('DM failed:',e.message);
@@ -300,15 +298,12 @@ async function dm(userId,payload){
   }
 }
 
-function turboDmEmbed({title,description,fields=[],colorValue=color,footer='Legend RP • Roleplay'}){
-  return new EmbedBuilder()
-    .setColor(colorValue)
-    .setAuthor({name:'Legend Application'})
-    .setTitle(title)
-    .setDescription(description||'')
-    .addFields(fields)
-    .setFooter({text:footer})
-    .setTimestamp();
+function turboDmEmbed({title,description,fields=[],colorValue=color,footer='LEGEND • PLAYER SERVICES'}){
+  const next=/قبولك نهائي|تصريح الدخول/.test(title)?'أهلًا بيك في المدينة. تابع دليل الدخول والقوانين من حسابك.':/رفض|لم تجتز/.test(title)?'راجع سبب القرار من الموقع. إعادة التقديم مرتبطة بالمدة الظاهرة في حسابك.':/حظر/.test(title)?'تفاصيل القرار موجودة في حسابك. تواصل مع الإدارة لو محتاج توضيح.':/مقابل/.test(title)?'راجع تفاصيل المقابلة وموعدها من حسابك، وخليك جاهز في الوقت المحدد.':'تابع حالة الطلب وأي تحديث جديد من حسابك على الموقع.';
+  return new EmbedBuilder().setColor(colorValue).setAuthor({name:'LEGEND / مركز خدمات اللاعبين'})
+    .setTitle(String(title).slice(0,256)).setDescription(String(description||'').slice(0,2800)+'\n\n**الخطوة الجاية**\n'+next)
+    .addFields(fields.slice(0,20)).setURL(frontendUrl+'/#apply')
+    .setImage(frontendUrl+'/legend-preview.png').setFooter({text:footer}).setTimestamp();
 }
 
 async function role(userId,roleId,add=true){
@@ -333,14 +328,14 @@ async function postApplication(app){
   if(!client?.isReady()||!IDS.REVIEW_CHANNEL_ID)return;
   const ch=await client.channels.fetch(IDS.REVIEW_CHANNEL_ID);
   if(!ch?.isTextBased()) throw new Error('REVIEW_CHANNEL_NOT_TEXT');
-  const e=new EmbedBuilder().setColor(color).setTitle(`تقديم #${app.number} — ${app.realName}`).setDescription(`<@${app.discordId}>`).addFields(
+  const e=new EmbedBuilder().setColor(0x3978ff).setAuthor({name:'LEGEND / مراجعة دخول المدينة'}).setTitle(`ملف تقديم #${app.number} — ${app.realName}`).setDescription(`**متقدم جديد للمدينة**\n<@${app.discordId}>\nراجع القصة والإجابات، وبعدها اختار القرار من الأزرار.`).addFields(
     {name:'العمر',value:String(app.age),inline:true},
     {name:'Discord',value:app.discordTag||app.discordId,inline:true},
     {name:'نوع الشخصية',value:({criminal:'شخصية إجرامية',police:'شرطي',mechanic:'ميكانيكي',ems:'مسعف',lawyer:'محامي',civilian:'مدني',business:'رجل أعمال'})[app.characterType]||'غير محدد',inline:true},
     {name:'قصة الشخصية',value:app.story.slice(0,1000)},
     ...app.answers.map((a,i)=>({name:`س${i+1}: ${a.q}`.slice(0,256),value:(a.a||'—').slice(0,900)})),
     {name:'مراجعة القصة',value:'مراجعة يدوية — لا يتم عرض نسبة AI غير موثوقة.'.slice(0,1024)}
-  ).setFooter({text:`Application ID: ${app.id}`}).setTimestamp();
+  ).setURL(frontendUrl+'/#admin').setFooter({text:`LEGEND • ملف التقديم ${app.number} • ${app.id}`}).setTimestamp();
 
   const row=new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`accept:${app.id}`).setLabel('قبول مبدئي').setStyle(ButtonStyle.Success),
@@ -400,117 +395,6 @@ const JOB_LABELS={ems:'مسعف',police:'شرطة',mechanic:'ميكانيكي'};
 const JOB_REVIEW_CHANNELS={ems:IDS.JOB_REVIEW_EMS_CHANNEL_ID,police:IDS.JOB_REVIEW_POLICE_CHANNEL_ID,mechanic:IDS.JOB_REVIEW_MECHANIC_CHANNEL_ID};
 const JOB_TICKET_CATEGORIES={ems:IDS.JOB_TICKET_EMS_CATEGORY_ID,police:IDS.JOB_TICKET_POLICE_CATEGORY_ID,mechanic:IDS.JOB_TICKET_MECHANIC_CATEGORY_ID};
 
-
-async function getJobGuild(){
-  if(!client?.isReady())throw new Error('JOB_DISCORD_UNAVAILABLE');
-  try{
-    const guild=await client.guilds.fetch(IDS.JOB_GUILD_ID);
-    if(!guild)throw new Error('JOB_GUILD_NOT_FOUND');
-    return guild;
-  }catch(e){
-    if(e?.message==='JOB_GUILD_NOT_FOUND')throw e;
-    console.error('[JOB PREFLIGHT] Cannot access jobs guild',IDS.JOB_GUILD_ID,e?.message);
-    throw new Error('JOB_GUILD_NOT_FOUND');
-  }
-}
-
-async function getJobBotMember(guild){
-  try{
-    return guild.members.me || await guild.members.fetchMe();
-  }catch(e){
-    console.error('[JOB PREFLIGHT] Cannot fetch bot member',e?.message);
-    throw new Error('JOB_BOT_MEMBER_UNAVAILABLE');
-  }
-}
-
-async function getJobReviewChannel(jobType){
-  const channelId=JOB_REVIEW_CHANNELS[jobType];
-  if(!channelId)throw new Error('JOB_REVIEW_CHANNEL_MISSING');
-
-  const guild=await getJobGuild();
-
-  let ch;
-  try{
-    ch=await guild.channels.fetch(channelId);
-  }catch(e){
-    console.error(`[JOB PREFLIGHT] Cannot fetch ${jobType} review channel ${channelId}`,e?.message);
-    throw new Error('JOB_REVIEW_CHANNEL_NOT_FOUND');
-  }
-
-  if(!ch)throw new Error('JOB_REVIEW_CHANNEL_NOT_FOUND');
-  if(String(ch.guildId)!==String(IDS.JOB_GUILD_ID))throw new Error('JOB_REVIEW_WRONG_GUILD');
-  if(!ch.isTextBased() || typeof ch.send!=='function')throw new Error('JOB_REVIEW_NOT_TEXT');
-
-  const me=await getJobBotMember(guild);
-  const perms=ch.permissionsFor(me);
-  if(!perms?.has(PermissionFlagsBits.ViewChannel))throw new Error('JOB_REVIEW_NO_VIEW');
-  if(!perms?.has(PermissionFlagsBits.SendMessages))throw new Error('JOB_REVIEW_NO_SEND');
-  if(!perms?.has(PermissionFlagsBits.EmbedLinks))throw new Error('JOB_REVIEW_NO_EMBEDS');
-
-  return ch;
-}
-
-async function validateTicketCategory(jobType){
-  const targetId=JOB_TICKET_CATEGORIES[jobType];
-  if(!targetId)throw new Error('JOB_TICKET_TARGET_MISSING');
-
-  const guild=await getJobGuild();
-  let target;
-  try{
-    target=await guild.channels.fetch(targetId);
-  }catch(e){
-    console.error(`[JOB PREFLIGHT] Cannot fetch ${jobType} ticket category ${targetId}`,e?.message);
-    throw new Error('JOB_TICKET_CATEGORY_NOT_FOUND');
-  }
-
-  if(!target)throw new Error('JOB_TICKET_CATEGORY_NOT_FOUND');
-  if(target.type!==ChannelType.GuildCategory)throw new Error('JOB_TICKET_TARGET_NOT_CATEGORY');
-
-  const me=await getJobBotMember(guild);
-  const perms=target.permissionsFor(me);
-  if(perms && !perms.has(PermissionFlagsBits.ViewChannel))throw new Error('JOB_TICKET_NO_VIEW');
-
-  return target;
-}
-
-async function getJobConfigHealth(){
-  const result={ready:!!client?.isReady(),guildId:IDS.JOB_GUILD_ID,guild:false,managerRole:false,jobs:{}};
-  if(!client?.isReady()){result.error='JOB_DISCORD_UNAVAILABLE';return result}
-
-  let guild;
-  try{guild=await getJobGuild();result.guild=true}
-  catch(e){result.error=e.message;return result}
-
-  try{result.managerRole=!!(await guild.roles.fetch(IDS.JOB_MANAGER_ROLE_ID))}catch{}
-
-  for(const type of Object.keys(JOB_LABELS)){
-    const item={
-      reviewId:JOB_REVIEW_CHANNELS[type],
-      ticketCategoryId:JOB_TICKET_CATEGORIES[type],
-      review:false,
-      ticketCategory:false,
-      errors:[]
-    };
-
-    try{
-      const c=await getJobReviewChannel(type);
-      item.review=true;
-      item.reviewName=c.name;
-    }catch(e){item.errors.push(e.message)}
-
-    try{
-      const c=await validateTicketCategory(type);
-      item.ticketCategory=true;
-      item.ticketCategoryName=c.name;
-    }catch(e){item.errors.push(e.message)}
-
-    result.jobs[type]=item;
-  }
-
-  result.ok=result.guild && result.managerRole && Object.values(result.jobs).every(x=>x.review&&x.ticketCategory);
-  return result;
-}
-
 async function isJobManager(interaction){
   try{
     if(String(interaction.user?.id)===String(IDS.OWNER_USER_ID))return true;
@@ -522,7 +406,10 @@ async function isJobManager(interaction){
 
 async function postJobApplication(job){
   if(!client?.isReady())return;
-  const ch=await getJobReviewChannel(job.type);
+  const channelId=JOB_REVIEW_CHANNELS[job.type];
+  if(!channelId)return;
+  const ch=await client.channels.fetch(channelId);
+  if(!ch?.isTextBased())throw new Error('JOB_REVIEW_CHANNEL_NOT_TEXT');
   const fields=[
     {name:'المتقدم',value:`<@${job.discordId}>`,inline:true},
     {name:'الاسم',value:job.realName,inline:true},
@@ -533,7 +420,7 @@ async function postJobApplication(job){
     {name:'ليه عايز الوظيفة؟',value:String(job.why||'—').slice(0,1024)},
     {name:'أوقات التواجد',value:String(job.availability||'—').slice(0,1024)}
   ];
-  const embed=new EmbedBuilder().setColor(0x3b8fb8).setTitle(`تقديم ${JOB_LABELS[job.type]} #${job.number}`).addFields(fields).setFooter({text:`Job Application ID: ${job.id}`}).setTimestamp();
+  const embed=new EmbedBuilder().setColor(0x3978ff).setAuthor({name:'LEGEND / إدارة الوظائف'}).setTitle(`ملف ${JOB_LABELS[job.type]} • طلب #${job.number}`).setDescription('**طلب انضمام جديد**\nراجع بيانات وخبرة المتقدم قبل القبول وفتح تذكرة الاستكمال.').addFields(fields).setFooter({text:`Job Application ID: ${job.id}`}).setTimestamp();
   const row=new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`jobaccept:${job.id}`).setLabel('قبول وفتح تذكرة').setStyle(ButtonStyle.Success),
     new ButtonBuilder().setCustomId(`jobreject:${job.id}`).setLabel('رفض').setStyle(ButtonStyle.Danger)
@@ -542,68 +429,26 @@ async function postJobApplication(job){
   await mutate(db=>{const a=(db.jobApplications||[]).find(x=>x.id===job.id);if(a)a.reviewMessageId=msg.id});
 }
 
-
-async function updateJobReviewMessage(job,text,components=[]){
-  if(!client?.isReady()||!job?.reviewMessageId)return;
-  try{
-    const ch=await getJobReviewChannel(job.type);
-    const msg=await ch.messages.fetch(job.reviewMessageId);
-    await msg.edit({content:text,components});
-  }catch(e){console.warn('Job review message update failed:',e.message)}
-}
-
-async function rejectJobApplication(jobId,by,reason){
-  let job,changed=false;
-  await mutate(db=>{
-    db.jobApplications=Array.isArray(db.jobApplications)?db.jobApplications:[];
-    job=db.jobApplications.find(x=>x.id===jobId);
-    if(job?.status==='pending'){
-      job.status='rejected';
-      job.reason=String(reason||'لم يتم تحديد سبب').slice(0,500);
-      job.reviewedAt=Date.now();
-      job.reviewedBy=by;
-      changed=true;
-      db.audit.push({at:Date.now(),by,action:'job_application_reject',jobApplicationId:jobId,reason:job.reason});
-    }
-  });
-  return {job,changed};
-}
-
 async function createJobTicket(job){
-  if(!client?.isReady())throw new Error('JOB_DISCORD_UNAVAILABLE');
-  const guild=await getJobGuild();
-  const target=await validateTicketCategory(job.type);
-  const targetId=target.id;
-
-  // Never create a second ticket if Accept is clicked twice.
-  if(job.ticketChannelId){
-    const existing=await guild.channels.fetch(job.ticketChannelId).catch(()=>null);
-    if(existing)return existing;
-  }
-
-  const parentId=target.id;
-
+  const guild=await client.guilds.fetch(IDS.JOB_GUILD_ID);
+  const categoryId=JOB_TICKET_CATEGORIES[job.type];
+  if(!categoryId)throw new Error('JOB_TICKET_CATEGORY_MISSING');
   let applicantMember=null;
   try{ applicantMember=await guild.members.fetch(job.discordId); }catch{}
-
   const perms=[
     {id:guild.roles.everyone.id,deny:[PermissionFlagsBits.ViewChannel]},
     {id:IDS.JOB_MANAGER_ROLE_ID,allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages,PermissionFlagsBits.ReadMessageHistory,PermissionFlagsBits.AttachFiles,PermissionFlagsBits.EmbedLinks]}
   ];
   if(applicantMember)perms.push({id:job.discordId,allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages,PermissionFlagsBits.ReadMessageHistory,PermissionFlagsBits.AttachFiles,PermissionFlagsBits.EmbedLinks]});
   if(client.user?.id)perms.push({id:client.user.id,allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages,PermissionFlagsBits.ReadMessageHistory,PermissionFlagsBits.ManageChannels]});
-
-  const safeName=String(job.realName||job.discordTag||'applicant').toLowerCase().replace(/[^a-z0-9\u0600-\u06ff]+/gi,'-').replace(/^-+|-+$/g,'').slice(0,28)||'applicant';
   const channel=await guild.channels.create({
-    name:`${job.type}-${String(job.number).padStart(3,'0')}-${safeName}`.slice(0,90),
+    name:`${job.type}-${String(job.number).padStart(3,'0')}`,
     type:ChannelType.GuildText,
-    ...(parentId?{parent:parentId}:{}),
+    parent:categoryId,
     permissionOverwrites:perms,
     topic:`Legend Job Application ${job.id} | ${job.realName}`
   });
-
-  const embed=new EmbedBuilder().setColor(0x3b8fb8).setTitle(`تذكرة قبول ${JOB_LABELS[job.type]}`).setDescription(applicantMember?`أهلًا <@${job.discordId}>، تم قبول تقديمك. الإدارة هتكمل معاك هنا.`:`تم قبول <@${job.discordId}> لكن العضو غير موجود داخل سيرفر الوظائف حاليًا.`).addFields(
-    {name:'رقم التقديم',value:`#${job.number}`,inline:true},
+  const embed=new EmbedBuilder().setColor(0x3b8fb8).setTitle(`تذكرة قبول ${JOB_LABELS[job.type]}`).setDescription(applicantMember?`أهلًا <@${job.discordId}>، تم قبول تقديمك. الإدارة هتكمل معاك هنا.`:`تم قبول <@${job.discordId}> لكن العضو غير موجود داخل السيرفر حاليًا.`).addFields(
     {name:'الاسم',value:job.realName,inline:true},
     {name:'الوظيفة',value:JOB_LABELS[job.type],inline:true},
     ...(job.type==='mechanic'?[{name:'الورشة',value:job.workshopName||'—',inline:true}]:[])
@@ -612,12 +457,8 @@ async function createJobTicket(job){
     new ButtonBuilder().setCustomId(`jobclaim:${job.id}`).setLabel('استلام التذكرة').setStyle(ButtonStyle.Primary),
     new ButtonBuilder().setCustomId(`jobclose:${job.id}`).setLabel('إغلاق التذكرة').setStyle(ButtonStyle.Secondary)
   );
-  const msg=await channel.send({content:`<@${job.discordId}> <@&${IDS.JOB_MANAGER_ROLE_ID}>`,embeds:[embed],components:[row]});
-
-  await mutate(db=>{
-    const a=(db.jobApplications||[]).find(x=>x.id===job.id);
-    if(a){a.ticketChannelId=channel.id;a.ticketMessageId=msg.id;}
-  });
+  const m=await channel.send({content:`<@${job.discordId}> <@&${IDS.JOB_MANAGER_ROLE_ID}>`,embeds:[embed],components:[row]});
+  await mutate(db=>{const a=(db.jobApplications||[]).find(x=>x.id===job.id);if(a){a.ticketChannelId=channel.id;a.ticketMessageId=m.id;}});
   return channel;
 }
 
@@ -627,104 +468,7 @@ async function startBot(){
 
   client.once(Events.ClientReady,c=>console.log(`Discord bot ready as ${c.user.tag}`));
   client.on(Events.InteractionCreate,async i=>{try{
-    if(i.isButton()&&i.customId.startsWith('jobaccept:')){
-      if(!(await isJobManager(i))) return i.reply({content:'❌ ليس لديك صلاحية مراجعة تقديمات الوظائف.',ephemeral:true});
-      await i.deferReply({ephemeral:true});
-      const id=i.customId.split(':')[1];
-      let job,claimed=false;
-      await mutate(db=>{
-        db.jobApplications=Array.isArray(db.jobApplications)?db.jobApplications:[];
-        job=db.jobApplications.find(x=>x.id===id);
-        if(job?.status==='pending'){
-          job.status='accepting';
-          job.reviewedAt=Date.now();
-          job.reviewedBy=i.user.id;
-          claimed=true;
-        }
-      });
-      if(!job||!claimed)return i.editReply({content:'⚠️ تمت مراجعة هذا التقديم بالفعل.'});
-
-      try{
-        const ticket=await createJobTicket(job);
-        await mutate(db=>{
-          const a=(db.jobApplications||[]).find(x=>x.id===id);
-          if(a){a.status='accepted';a.acceptedAt=Date.now();a.reviewedBy=i.user.id;db.audit.push({at:Date.now(),by:i.user.id,action:'job_application_accept',jobApplicationId:id,ticketChannelId:ticket.id});}
-        });
-        job.status='accepted';
-        await updateJobReviewMessage(job,`✅ تم قبول التقديم بواسطة <@${i.user.id}> — التذكرة: <#${ticket.id}>`,[]);
-        await dm(job.discordId,{embeds:[turboDmEmbed({title:`✅ تم قبول تقديم ${JOB_LABELS[job.type]}`,description:`تم قبول تقديمك رقم **#${job.number}** وفتح تذكرة خاصة بك: <#${ticket.id}>`,colorValue:0x22c55e})]});
-        return i.editReply({content:`✅ تم القبول وفتح التذكرة <#${ticket.id}>`});
-      }catch(err){
-        console.error('Job accept/ticket error:',err);
-        await mutate(db=>{
-          const a=(db.jobApplications||[]).find(x=>x.id===id);
-          if(a?.status==='accepting'){a.status='pending';a.ticketError=String(err.message||err);}
-        });
-        return i.editReply({content:`❌ لم يتم فتح التذكرة. تم إرجاع التقديم إلى قيد المراجعة.\nالخطأ: ${String(err.message||'UNKNOWN').slice(0,180)}`});
-      }
-
-    } else if(i.isButton()&&i.customId.startsWith('jobreject:')){
-      if(!(await isJobManager(i))) return i.reply({content:'❌ ليس لديك صلاحية مراجعة تقديمات الوظائف.',ephemeral:true});
-      const id=i.customId.split(':')[1];
-      const modal=new ModalBuilder().setCustomId(`jobrejectmodal:${id}`).setTitle('سبب رفض تقديم الوظيفة');
-      const inp=new TextInputBuilder().setCustomId('reason').setLabel('سبب الرفض').setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(500);
-      modal.addComponents(new ActionRowBuilder().addComponents(inp));
-      return i.showModal(modal);
-
-    } else if(i.isModalSubmit()&&i.customId.startsWith('jobrejectmodal:')){
-      if(!(await isJobManager(i))) return i.reply({content:'❌ ليس لديك صلاحية مراجعة تقديمات الوظائف.',ephemeral:true});
-      await i.deferReply({ephemeral:true});
-      const id=i.customId.split(':')[1];
-      const reason=i.fields.getTextInputValue('reason').trim();
-      const {job,changed}=await rejectJobApplication(id,i.user.id,reason);
-      if(!job||!changed)return i.editReply({content:'⚠️ تمت مراجعة هذا التقديم بالفعل.'});
-      await updateJobReviewMessage(job,`❌ تم رفض التقديم بواسطة <@${i.user.id}> — ${reason}`,[]);
-      await dm(job.discordId,{embeds:[turboDmEmbed({title:`❌ تم رفض تقديم ${JOB_LABELS[job.type]}`,description:`تم رفض تقديمك رقم **#${job.number}**.\n**السبب:** ${reason.slice(0,700)}`,colorValue:0xef4444})]});
-      return i.editReply({content:`✅ تم رفض التقديم #${job.number} وإرسال السبب للمتقدم.`});
-
-    } else if(i.isButton()&&i.customId.startsWith('jobclaim:')){
-      if(!(await isJobManager(i))) return i.reply({content:'❌ ليس لديك صلاحية استلام التذكرة.',ephemeral:true});
-      await i.deferUpdate();
-      const id=i.customId.split(':')[1];
-      let job,changed=false;
-      await mutate(db=>{
-        job=(db.jobApplications||[]).find(x=>x.id===id);
-        if(job&&!job.claimedBy){job.claimedBy=i.user.id;job.claimedAt=Date.now();changed=true;db.audit.push({at:Date.now(),by:i.user.id,action:'job_ticket_claim',jobApplicationId:id});}
-      });
-      if(!job)return i.followUp({content:'❌ التقديم غير موجود.',ephemeral:true});
-      if(!changed)return i.followUp({content:`⚠️ التذكرة مستلمة بالفعل بواسطة <@${job.claimedBy}>.`,ephemeral:true});
-      const row=new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`jobclaim:${job.id}`).setLabel(`مستلمة بواسطة ${i.user.username}`.slice(0,80)).setStyle(ButtonStyle.Secondary).setDisabled(true),
-        new ButtonBuilder().setCustomId(`jobclose:${job.id}`).setLabel('إغلاق التذكرة').setStyle(ButtonStyle.Danger)
-      );
-      await i.message.edit({content:`<@${job.discordId}> <@&${IDS.JOB_MANAGER_ROLE_ID}>\n✅ تم استلام التذكرة بواسطة <@${i.user.id}>`,components:[row]}).catch(()=>{});
-      return i.followUp({content:'✅ تم استلام التذكرة.',ephemeral:true});
-
-    } else if(i.isButton()&&i.customId.startsWith('jobclose:')){
-      if(!(await isJobManager(i))) return i.reply({content:'❌ ليس لديك صلاحية إغلاق التذكرة.',ephemeral:true});
-      const id=i.customId.split(':')[1];
-      const modal=new ModalBuilder().setCustomId(`jobclosemodal:${id}`).setTitle('إغلاق تذكرة الوظيفة');
-      const inp=new TextInputBuilder().setCustomId('reason').setLabel('سبب إغلاق التذكرة').setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(500);
-      modal.addComponents(new ActionRowBuilder().addComponents(inp));
-      return i.showModal(modal);
-
-    } else if(i.isModalSubmit()&&i.customId.startsWith('jobclosemodal:')){
-      if(!(await isJobManager(i))) return i.reply({content:'❌ ليس لديك صلاحية إغلاق التذكرة.',ephemeral:true});
-      await i.deferReply({ephemeral:true});
-      const id=i.customId.split(':')[1];
-      const reason=i.fields.getTextInputValue('reason').trim();
-      let job;
-      await mutate(db=>{
-        job=(db.jobApplications||[]).find(x=>x.id===id);
-        if(job){job.ticketClosedAt=Date.now();job.ticketClosedBy=i.user.id;job.ticketCloseReason=reason;db.audit.push({at:Date.now(),by:i.user.id,action:'job_ticket_close',jobApplicationId:id,reason});}
-      });
-      if(!job)return i.editReply({content:'❌ التقديم غير موجود.'});
-      await dm(job.discordId,{embeds:[turboDmEmbed({title:`🔒 تم إغلاق تذكرة ${JOB_LABELS[job.type]||'الوظيفة'}`,description:`تم إغلاق تذكرتك بواسطة <@${i.user.id}>.\n**السبب:** ${reason.slice(0,500)}`,colorValue:0xef4444})]}).catch(()=>false);
-      await i.editReply({content:'✅ تم تسجيل السبب وإرساله للمتقدم. سيتم إغلاق التذكرة خلال 3 ثواني.'});
-      setTimeout(()=>i.channel?.delete(`Legend job ticket closed: ${reason}`.slice(0,500)).catch(()=>{}),3000);
-      return;
-
-    } else if(i.isButton()&&(i.customId.startsWith('accept:')||i.customId.startsWith('reject:'))){
+    if(i.isButton()&&(i.customId.startsWith('accept:')||i.customId.startsWith('reject:'))){
       if(!(await isReviewer(i))) return i.reply({content:'❌ ليس لديك صلاحية مراجعة التقديمات.',ephemeral:true});
       const [action,id]=i.customId.split(':');
 
@@ -1033,20 +777,8 @@ app.post('/api/interviews/:slotId/book',auth,asyncRoute(async(req,res)=>{
 }));
 
 
-app.post('/api/admin/password-login',asyncRoute(async(req,res)=>{
-  const expected=String(process.env.ADMIN_PANEL_PASSWORD||'');
-  const given=String(req.body?.password||'');
-  if(!expected) return res.status(503).json({error:'ADMIN_PASSWORD_NOT_CONFIGURED'});
-  const a=Buffer.from(given),b=Buffer.from(expected);
-  const ok=a.length===b.length && crypto.timingSafeEqual(a,b);
-  if(!ok) return res.status(401).json({error:'INVALID_ADMIN_PASSWORD'});
-  const token=signToken({id:'panel-password',username:'Legend Admin',roles:[],panelAdmin:true},6*3600);
-  res.json({ok:true,token,expiresIn:6*3600});
-}));
-
-app.get('/api/admin/job-config-health',auth,admin,asyncRoute(async(req,res)=>{
-  res.json(await getJobConfigHealth());
-}));
+// Admin panel access is Discord-ID allowlist only. Password/role bypasses are disabled.
+app.post('/api/admin/password-login',(req,res)=>res.status(404).json({error:'NOT_FOUND'}));
 
 app.get('/api/admin/state',auth,admin,asyncRoute(async(req,res)=>{
   const db=await readDB();
@@ -1260,46 +992,19 @@ app.post('/api/admin/applications/:id/action',auth,admin,asyncRoute(async(req,re
 
 
 app.post('/api/job-applications',auth,asyncRoute(async(req,res)=>{
+  { const db=await readDB(); if(db.settings.jobApplicationsOpen===false)return res.status(403).json({error:'JOB_APPLICATIONS_CLOSED'}); }
   const {type,realName,age,experience,why,availability,workshopId}=req.body||{};
-  const jobType=String(type||'').trim();
+  const jobType=String(type||'');
   if(!['ems','police','mechanic'].includes(jobType))return res.status(400).json({error:'INVALID_JOB_TYPE'});
-
-  {
-    const db=await readDB();
-    if(db.settings.jobApplicationsOpen===false)return res.status(403).json({error:'JOB_APPLICATIONS_CLOSED'});
-    const access=db.settings.jobApplicationAccess||{};
-    if(access[jobType]?.open===false)return res.status(403).json({error:'JOB_DEPARTMENT_CLOSED'});
-
-    if(jobType==='mechanic'){
-      const mechanicAccess=access.mechanic||{open:true,mode:'all',workshopId:''};
-      if(mechanicAccess.mode==='one' && String(workshopId||'')!==String(mechanicAccess.workshopId||'')){
-        return res.status(403).json({error:'WORKSHOP_CLOSED'});
-      }
-    }
-  }
   if(!/^\S+\s+\S+/.test(String(realName||'').trim()))return res.status(400).json({error:'REAL_NAME_TWO_PARTS'});
-  if(!Number.isFinite(Number(age))||Number(age)<16||Number(age)>80)return res.status(400).json({error:'INVALID_AGE'});
+  if(Number(age)<16||Number(age)>80)return res.status(400).json({error:'INVALID_AGE'});
   if(String(experience||'').trim().length<20||String(why||'').trim().length<20)return res.status(400).json({error:'JOB_ANSWERS_SHORT'});
-  if(String(availability||'').trim().length<5)return res.status(400).json({error:'JOB_AVAILABILITY_SHORT'});
-  if(!client?.isReady())return res.status(503).json({error:'JOB_DISCORD_UNAVAILABLE'});
-
-  try{
-    await getJobReviewChannel(jobType);
-  }catch(e){
-    console.error('[JOB SUBMIT PREFLIGHT]',jobType,e.message);
-    return res.status(503).json({error:e.message||'JOB_REVIEW_CHANNEL_INVALID'});
-  }
-
   let created;
   await mutate(db=>{
     db.jobApplications=Array.isArray(db.jobApplications)?db.jobApplications:[];
     db.mechanicWorkshops=Array.isArray(db.mechanicWorkshops)?db.mechanicWorkshops:[];
-    db.counters=db.counters||{};
-    if(typeof db.counters.jobApplication!=='number')db.counters.jobApplication=0;
-
-    const active=db.jobApplications.find(x=>x.discordId===req.user.id&&x.type===jobType&&['pending','accepting','accepted'].includes(x.status));
-    if(active)throw new Error('JOB_ALREADY_ACTIVE');
-
+    const active=db.jobApplications.find(x=>x.discordId===req.user.id&&x.type===jobType&&x.status==='pending');
+    if(active)throw new Error('JOB_ALREADY_PENDING');
     let workshopName='';
     if(jobType==='mechanic'){
       const mechanicAccess=db.settings.jobApplicationAccess?.mechanic||{open:true,mode:'all',workshopId:''};
@@ -1311,28 +1016,11 @@ app.post('/api/job-applications',auth,asyncRoute(async(req,res)=>{
       if(!w)throw new Error('WORKSHOP_REQUIRED');
       workshopName=w.name;
     }
-
-    db.counters.jobApplication+=1;
-    created={
-      id:crypto.randomUUID(),number:db.counters.jobApplication,discordId:req.user.id,discordTag:req.user.username,
-      type:jobType,realName:String(realName).trim(),age:Number(age),experience:String(experience).trim(),why:String(why).trim(),
-      availability:String(availability).trim(),workshopId:jobType==='mechanic'?String(workshopId):null,workshopName,status:'pending',createdAt:Date.now()
-    };
-    db.jobApplications.push(created);
-    db.audit.push({at:Date.now(),by:req.user.id,action:'job_application_create',jobApplicationId:created.id,type:jobType});
+    db.counters.jobApplication=(db.counters.jobApplication||0)+1;
+    created={id:crypto.randomUUID(),number:db.counters.jobApplication,discordId:req.user.id,discordTag:req.user.username,type:jobType,realName:String(realName).trim(),age:Number(age),experience:String(experience).trim(),why:String(why).trim(),availability:String(availability||'').trim(),workshopId:jobType==='mechanic'?String(workshopId):null,workshopName,status:'pending',createdAt:Date.now()};
+    db.jobApplications.push(created);db.audit.push({at:Date.now(),by:req.user.id,action:'job_application_create',jobApplicationId:created.id,type:jobType});
   });
-
-  try{
-    await postJobApplication(created);
-  }catch(err){
-    console.error('Job application Discord dispatch failed:',err);
-    await mutate(db=>{
-      db.jobApplications=(db.jobApplications||[]).filter(x=>x.id!==created.id);
-      db.audit.push({at:Date.now(),by:req.user.id,action:'job_application_dispatch_failed',jobApplicationId:created.id,type:jobType,error:String(err.message||err).slice(0,300)});
-    });
-    return res.status(502).json({error:'JOB_REVIEW_SEND_FAILED'});
-  }
-
+  await postJobApplication(created);
   res.json({ok:true,application:created});
 }));
 
@@ -1349,10 +1037,7 @@ app.post('/api/admin/team-members',auth,admin,asyncRoute(async(req,res)=>{
   const rank=String(req.body?.rank||'').trim().slice(0,80);
   const image=String(req.body?.image||'').trim().slice(0,2000);
   const order=Number(req.body?.order||0);
-
-  if(!name||!rank||!image){
-    return res.status(400).json({error:'MISSING_TEAM_DATA'});
-  }
+  if(!name||!rank||!image)return res.status(400).json({error:'MISSING_TEAM_DATA'});
 
   const member={
     id:crypto.randomUUID(),
@@ -1367,14 +1052,7 @@ app.post('/api/admin/team-members',auth,admin,asyncRoute(async(req,res)=>{
   await mutate(db=>{
     db.teamMembers=Array.isArray(db.teamMembers)?db.teamMembers:[];
     db.teamMembers.push(member);
-    db.audit.push({
-      at:Date.now(),
-      by:req.user.id,
-      action:'public_team_add',
-      teamMemberId:member.id,
-      name:member.name,
-      rank:member.rank
-    });
+    db.audit.push({at:Date.now(),by:req.user.id,action:'public_team_add',teamMemberId:member.id});
   });
 
   res.json({ok:true,member});
@@ -1385,12 +1063,7 @@ app.delete('/api/admin/team-members/:id',auth,admin,asyncRoute(async(req,res)=>{
   await mutate(db=>{
     db.teamMembers=Array.isArray(db.teamMembers)?db.teamMembers:[];
     db.teamMembers=db.teamMembers.filter(x=>x.id!==id);
-    db.audit.push({
-      at:Date.now(),
-      by:req.user.id,
-      action:'public_team_remove',
-      teamMemberId:id
-    });
+    db.audit.push({at:Date.now(),by:req.user.id,action:'public_team_remove',teamMemberId:id});
   });
   res.json({ok:true});
 }));
@@ -1454,19 +1127,12 @@ installStore({app,auth,admin,readDB,mutate,dm,frontendUrl,crypto,asyncRoute});
 app.use(express.static('public'));
 app.use((err,req,res,next)=>{
   console.error(err);
-  const map={CLOSED:403,BLOCKED:409,BANNED:403,COOLDOWN:429,NOT_PRE_ACCEPTED:403,ALREADY_BOOKED:409,SLOT_UNAVAILABLE:409,BOOKED:409,CORS_NOT_ALLOWED:403,CREATOR_INVALID:400,MISSING_TEAM_DATA:400,APPLICATION_NOT_FOUND:404,INVALID_STAGE:409,ADMIN_EXISTS:409,JOB_ALREADY_ACTIVE:409,JOB_ALREADY_PENDING:409,WORKSHOP_REQUIRED:400,JOB_ANSWERS_SHORT:400,JOB_AVAILABILITY_SHORT:400,INVALID_JOB_TYPE:400,JOB_DISCORD_UNAVAILABLE:503,JOB_GUILD_NOT_FOUND:503,JOB_BOT_MEMBER_UNAVAILABLE:503,JOB_REVIEW_CHANNEL_MISSING:503,JOB_REVIEW_CHANNEL_NOT_FOUND:503,JOB_REVIEW_WRONG_GUILD:503,JOB_REVIEW_NOT_TEXT:503,JOB_REVIEW_NO_VIEW:503,JOB_REVIEW_NO_SEND:503,JOB_REVIEW_NO_EMBEDS:503,JOB_TICKET_TARGET_MISSING:503,JOB_TICKET_CATEGORY_NOT_FOUND:503,JOB_TICKET_TARGET_NOT_CATEGORY:503,JOB_TICKET_NO_VIEW:503,JOB_REVIEW_CHANNEL_INVALID:503,JOB_REVIEW_SEND_FAILED:502};
+  const map={CLOSED:403,BLOCKED:409,BANNED:403,COOLDOWN:429,NOT_PRE_ACCEPTED:403,ALREADY_BOOKED:409,SLOT_UNAVAILABLE:409,BOOKED:409,CORS_NOT_ALLOWED:403,CREATOR_INVALID:400,APPLICATION_NOT_FOUND:404,INVALID_STAGE:409,ADMIN_EXISTS:409,INVALID_CHARACTER_TYPE:400,INVALID_JOB_TYPE:400,JOB_ANSWERS_SHORT:400,JOB_ALREADY_PENDING:409,WORKSHOP_REQUIRED:400,WORKSHOP_NAME_REQUIRED:400};
   res.status(map[err.message]||500).json({error:err.message||'SERVER_ERROR'});
 });
 
 const port=process.env.PORT||3000;
 app.listen(port,'0.0.0.0',()=>{console.log(`Legend API ${BUILD_VERSION} listening on ${port}`);mutate(db=>{db.audit.push({at:Date.now(),by:'system',action:'system_deploy',build:BUILD_VERSION})}).catch(()=>{})});
 startBot().catch(e=>console.error('Discord bot failed:',e));
-setTimeout(async()=>{
-  try{
-    console.log('[JOB CONFIG PREFLIGHT]',JSON.stringify(await getJobConfigHealth(),null,2));
-  }catch(e){
-    console.error('[JOB CONFIG PREFLIGHT FAILED]',e);
-  }
-},8000);
 setInterval(checkLives,Math.max(1,Number(process.env.LIVE_CHECK_MINUTES||3))*60*1000);
 setTimeout(checkLives,5000);
