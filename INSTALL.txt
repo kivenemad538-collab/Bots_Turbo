@@ -1,1 +1,5 @@
 Upload all bot files to the Railway bot repository and redeploy. Retain existing variables and database. Creator role: 1522093054365012082. Bot needs Manage Roles and a role above the creator role. Move Members is needed for voice pulls. Creator reviews use the existing review channel.
+
+Community update: first sign-in welcome, notification languages and FiveM status. Install the matching website, bot and server bridge packages. Configure FIVEM_STATUS_SECRET using the bridge installation files.
+
+Final Legend join URL is configured. Add FIVEM_STATUS_SECRET to Railway from the server bridge BOT-CONFIG.txt.

@@ -1,3 +1,4 @@
+import {installCommunity,languagePayload} from './community-api.js';
 import { installCreators } from './creator-api.js';
 import { installStore } from './store-api.js';
 // ============================================================
@@ -293,7 +294,7 @@ async function dm(userId,payload){
     const u=await client.users.fetch(userId);
     let message=typeof payload==='string'?{content:payload}:payload;
     if(message?.content&&!message.embeds){message={...message,content:undefined,embeds:[new EmbedBuilder().setColor(0x3978ff).setAuthor({name:'LEGEND / إشعار جديد'}).setTitle('تحديث من مدينة Legend').setDescription(String(message.content).slice(0,3800)).setImage(frontendUrl+'/legend-preview.png').setFooter({text:'LEGEND • تابع التفاصيل من حسابك على الموقع'}).setTimestamp()]};}
-    await u.send(message);
+    await community.send(u,message,userId);
     return true;
   }catch(e){
     console.warn('DM failed:',e.message);
@@ -344,7 +345,7 @@ async function postApplication(app){
     new ButtonBuilder().setCustomId(`accept:${app.id}`).setLabel('قبول مبدئي').setStyle(ButtonStyle.Success),
     new ButtonBuilder().setCustomId(`reject:${app.id}`).setLabel('رفض بسبب').setStyle(ButtonStyle.Danger)
   );
-  const msg=await ch.send({embeds:[e],components:[row]});
+  const msg=await community.send(ch,{embeds:[e],components:[row]});
   await mutate(db=>{const a=db.applications.find(x=>x.id===app.id);if(a)a.reviewMessageId=msg.id});
 }
 
@@ -428,7 +429,7 @@ async function postJobApplication(job){
     new ButtonBuilder().setCustomId(`jobaccept:${job.id}`).setLabel('قبول وفتح تذكرة').setStyle(ButtonStyle.Success),
     new ButtonBuilder().setCustomId(`jobreject:${job.id}`).setLabel('رفض').setStyle(ButtonStyle.Danger)
   );
-  const msg=await ch.send({content:`<@&${IDS.JOB_MANAGER_ROLE_ID}> تقديم جديد`,embeds:[embed],components:[row]});
+  const msg=await community.send(ch,{content:`<@&${IDS.JOB_MANAGER_ROLE_ID}> تقديم جديد`,embeds:[embed],components:[row]});
   await mutate(db=>{const a=(db.jobApplications||[]).find(x=>x.id===job.id);if(a)a.reviewMessageId=msg.id});
 }
 
@@ -460,7 +461,7 @@ async function createJobTicket(job){
     new ButtonBuilder().setCustomId(`jobclaim:${job.id}`).setLabel('استلام التذكرة').setStyle(ButtonStyle.Primary),
     new ButtonBuilder().setCustomId(`jobclose:${job.id}`).setLabel('إغلاق التذكرة').setStyle(ButtonStyle.Secondary)
   );
-  const m=await channel.send({content:`<@${job.discordId}> <@&${IDS.JOB_MANAGER_ROLE_ID}>`,embeds:[embed],components:[row]});
+  const m=await community.send(channel,{content:`<@${job.discordId}> <@&${IDS.JOB_MANAGER_ROLE_ID}>`,embeds:[embed],components:[row]});
   await mutate(db=>{const a=(db.jobApplications||[]).find(x=>x.id===job.id);if(a){a.ticketChannelId=channel.id;a.ticketMessageId=m.id;}});
   return channel;
 }
@@ -472,7 +473,7 @@ async function startBot(){
   client.once(Events.ClientReady,c=>console.log(`Discord bot ready as ${c.user.tag}`));
   client.on(Events.InteractionCreate,async i=>{try{
     if(i.isButton()&&(i.customId.startsWith('accept:')||i.customId.startsWith('reject:'))){
-      if(!(await isReviewer(i))) return i.reply({content:'❌ ليس لديك صلاحية مراجعة التقديمات.',ephemeral:true});
+      if(!(await isReviewer(i))) return i.reply(languagePayload({content:'❌ ليس لديك صلاحية مراجعة التقديمات.',ephemeral:true},await community.languageFor(i.user.id)));
       const [action,id]=i.customId.split(':');
 
       if(action==='accept'){
@@ -493,11 +494,11 @@ async function startBot(){
         });
 
         if(!app||!changed){
-          return i.followUp({content:'⚠️ تمت مراجعة هذا الطلب بالفعل.',ephemeral:true});
+          return i.followUp(languagePayload({content:'⚠️ تمت مراجعة هذا الطلب بالفعل.',ephemeral:true},await community.languageFor(i.user.id)));
         }
 
         // Remove buttons first. Role/DM failures must not make Discord show a timeout.
-        await i.editReply({content:`✅ قبول مبدئي بواسطة <@${i.user.id}>`,components:[]}).catch(()=>{});
+        await i.editReply(languagePayload({content:`✅ قبول مبدئي بواسطة <@${i.user.id}>`,components:[]},await community.languageFor(i.user.id))).catch(()=>{});
 
         let roleOk=true, dmOk=true;
         try{ await role(app.discordId,IDS.VOICE_REVIEW_ROLE_ID,false); await role(app.discordId,IDS.PRE_ACCEPTED_ROLE_ID,true); }catch{ roleOk=false; }
@@ -513,10 +514,10 @@ async function startBot(){
         });
         dmOk=await dm(app.discordId,{embeds:[acceptEmbed]});
 
-        await i.followUp({
+        await i.followUp(languagePayload({
           content:`✅ تم قبول التقديم #${app.number} مبدئيًا.${roleOk?'':'\n⚠️ راجع صلاحية/ترتيب رول البوت.'}${dmOk?'':'\n⚠️ تعذر إرسال رسالة خاصة للمتقدم.'}`,
           ephemeral:true
-        }).catch(()=>{});
+        },await community.languageFor(i.user.id))).catch(()=>{});
       } else {
         // showModal itself acknowledges the button interaction, so do it before
         // any database/network work.
@@ -526,7 +527,7 @@ async function startBot(){
         await i.showModal(modal);
       }
     } else if(i.isModalSubmit()&&i.customId.startsWith('rejectmodal:')){
-      if(!(await isReviewer(i))) return i.reply({content:'❌ ليس لديك صلاحية مراجعة التقديمات.',ephemeral:true});
+      if(!(await isReviewer(i))) return i.reply(languagePayload({content:'❌ ليس لديك صلاحية مراجعة التقديمات.',ephemeral:true},await community.languageFor(i.user.id)));
 
       // Modal submissions also have Discord's short response deadline.
       await i.deferReply({ephemeral:true});
@@ -547,7 +548,7 @@ async function startBot(){
       });
 
       if(!app||!changed){
-        return i.editReply({content:'⚠️ تمت مراجعة هذا الطلب بالفعل.'});
+        return i.editReply(languagePayload({content:'⚠️ تمت مراجعة هذا الطلب بالفعل.'},await community.languageFor(i.user.id)));
       }
 
       // A modal submit does not reliably carry the original review message.
@@ -576,14 +577,14 @@ async function startBot(){
       await role(app.discordId,IDS.VOICE_REVIEW_ROLE_ID,false);
       const dmOk=await dm(app.discordId,{embeds:[rejectEmbed]});
 
-      await i.editReply({content:`✅ تم رفض التقديم #${app.number} وحفظ السبب.${dmOk?'':'\n⚠️ تعذر إرسال رسالة خاصة للمتقدم.'}`});
+      await i.editReply(languagePayload({content:`✅ تم رفض التقديم #${app.number} وحفظ السبب.${dmOk?'':'\n⚠️ تعذر إرسال رسالة خاصة للمتقدم.'}`},await community.languageFor(i.user.id)));
     }
   }catch(e){
     console.error('Discord interaction error:',e);
     if(!i.isRepliable()) return;
     const payload={content:'❌ حدث خطأ أثناء تنفيذ العملية.',ephemeral:true};
-    if(i.deferred||i.replied) await i.followUp(payload).catch(()=>{});
-    else await i.reply(payload).catch(()=>{});
+    if(i.deferred||i.replied) await i.followUp(languagePayload(payload,await community.languageFor(i.user.id))).catch(()=>{});
+    else await i.reply(languagePayload(payload,await community.languageFor(i.user.id))).catch(()=>{});
   }});
 
   await client.login(process.env.DISCORD_BOT_TOKEN);
@@ -663,7 +664,7 @@ app.get('/api/public',asyncRoute(async(req,res)=>{
 app.get('/auth/discord',(req,res)=>{
   if(!IDS.CLIENT_ID||!DISCORD_REDIRECT_URI) return res.status(503).send('Discord OAuth is not configured.');
   const state=oauthState();
-  res.setHeader('Set-Cookie',cookie('turbo_oauth_state',state));
+  res.setHeader('Set-Cookie',[cookie('turbo_oauth_state',state),cookie('legend_oauth_lang',req.query.lang==='en'?'en':'ar')]);
   const q=new URLSearchParams({
     client_id:IDS.CLIENT_ID,
     redirect_uri:DISCORD_REDIRECT_URI,
@@ -700,6 +701,7 @@ app.get('/auth/discord/callback',asyncRoute(async(req,res)=>{
   const roles=await getMemberRoles(u.id);
   const token=signToken({id:u.id,username:u.username,globalName:u.global_name,avatar:u.avatar,roles});
   res.redirect(`${frontendUrl}/#token=${encodeURIComponent(token)}`);
+  community.register(u,cookies.legend_oauth_lang==='en'?'en':'ar').catch(error=>console.error('Welcome notification failed:',error.message));
 }));
 
 function latestApplicationFor(db,discordId){
@@ -1137,7 +1139,8 @@ async function checkLives(){
   }
 }
 
-const bindCreatorDiscord=installCreators({app,auth,admin,readDB,mutate,dm,frontendUrl,crypto,asyncRoute,getClient:()=>client,IDS,isAdmin});
+const community=installCommunity({app,auth,readDB,mutate,asyncRoute,getClient:()=>client,frontendUrl,dm});
+const bindCreatorDiscord=installCreators({sendBotMessage:(target,payload)=>community.send(target,payload),app,auth,admin,readDB,mutate,dm,frontendUrl,crypto,asyncRoute,getClient:()=>client,IDS,isAdmin});
 installStore({app,auth,admin,readDB,mutate,dm,frontendUrl,crypto,asyncRoute});
 app.use(express.static('public'));
 app.use((err,req,res,next)=>{
@@ -1150,5 +1153,6 @@ const port=process.env.PORT||3000;
 app.listen(port,'0.0.0.0',()=>{console.log(`Legend API ${BUILD_VERSION} listening on ${port}`);mutate(db=>{db.audit.push({at:Date.now(),by:'system',action:'system_deploy',build:BUILD_VERSION})}).catch(()=>{})});
 startBot().catch(e=>console.error('Discord bot failed:',e));
 bindCreatorDiscord();
+community.bind();
 setInterval(checkLives,Math.max(1,Number(process.env.LIVE_CHECK_MINUTES||3))*60*1000);
 setTimeout(checkLives,5000);
