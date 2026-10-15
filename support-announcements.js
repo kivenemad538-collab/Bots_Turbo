@@ -1,3 +1,4 @@
+import {createReadStream} from 'node:fs';
 import {Events, EmbedBuilder, SlashCommandBuilder, ChannelType, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, PermissionFlagsBits} from 'discord.js';
 import {joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, VoiceConnectionStatus, entersState, StreamType} from '@discordjs/voice';
 import {fileURLToPath} from 'node:url';
@@ -36,7 +37,7 @@ export function installSupportAnnouncements(client,guildId){
    await connect();
    const guild=client.guilds.cache.get(guildId);
    if(guild?.voiceStates.cache.get(id)?.channelId!==SUPPORT_CHANNEL)return void next();
-   playing=true;player.play(createAudioResource(audio,{inputType:StreamType.OggOpus}));
+   playing=true;player.play(createAudioResource(createReadStream(audio),{inputType:StreamType.OggOpus}));
   }catch(e){playing=false;log(e);if(queue.length)setTimeout(next,1000).unref();}
  }
  player.on(AudioPlayerStatus.Idle,()=>{playing=false;next();});
