@@ -1,3 +1,4 @@
+import {installSupportAnnouncements} from './support-announcements.js';
 import {installCommunity,languagePayload} from './community-api.js';
 import { installCreators } from './creator-api.js';
 import { installStore } from './store-api.js';
@@ -58,7 +59,8 @@ const IDS = {
 // TWITCH_CLIENT_ID / TWITCH_CLIENT_SECRET = اختياري لفحص Twitch
 // ADMIN_PANEL_PASSWORD     = باسورد لوحة التحكم بالموقع
 
-const API_PUBLIC_URL = (process.env.API_PUBLIC_URL || (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : 'http://localhost:3000')).replace(/\/$/,'');
+const rawPublicUrl = (process.env.API_PUBLIC_URL || process.env.RAILWAY_PUBLIC_DOMAIN || 'http://localhost:3000').trim();
+const API_PUBLIC_URL = (/^https?:\/\//i.test(rawPublicUrl) ? rawPublicUrl : `https://${rawPublicUrl}`).replace(/\/+$/,'');
 const DISCORD_REDIRECT_URI = `${API_PUBLIC_URL}/auth/discord/callback`;
 
 
@@ -468,8 +470,9 @@ async function createJobTicket(job){
 
 async function startBot(){
   if(!process.env.DISCORD_BOT_TOKEN){console.warn('DISCORD_BOT_TOKEN is missing. Bot disabled.');return null}
-  client=new Client({intents:[GatewayIntentBits.Guilds,GatewayIntentBits.GuildMembers]});
+  client=new Client({intents:[GatewayIntentBits.Guilds,GatewayIntentBits.GuildMembers,GatewayIntentBits.GuildVoiceStates]});
 
+  installSupportAnnouncements(client,IDS.GUILD_ID);
   client.once(Events.ClientReady,c=>console.log(`Discord bot ready as ${c.user.tag}`));
   client.on(Events.InteractionCreate,async i=>{try{
     if(i.isButton()&&(i.customId.startsWith('accept:')||i.customId.startsWith('reject:'))){
