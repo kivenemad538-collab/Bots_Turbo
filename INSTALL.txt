@@ -1,5 +1,22 @@
-Upload all bot files to the Railway bot repository and redeploy. Retain existing variables and database. Creator role: 1522093054365012082. Bot needs Manage Roles and a role above the creator role. Move Members is needed for voice pulls. Creator reviews use the existing review channel.
+NEXUS BOT — الملفات في جذر الأرشيف
 
-Community update: first sign-in welcome, notification languages and FiveM status. Install the matching website, bot and server bridge packages. Configure FIVEM_STATUS_SECRET using the bridge installation files.
+استبدل ملفات مشروع البوت بالمرفق ثم أعد نشره على Railway.
+احتفظ بنفس التوكن وDISCORD_CLIENT_SECRET وSESSION_SECRET وقاعدة البيانات وDATA_FILE.
+عدّل FRONTEND_URL إلى:
+https://kivenemad538-collab.github.io/Nexus_Website
 
-Final Legend join URL is configured. Add FIVEM_STATUS_SECRET to Railway from the server bridge BOT-CONFIG.txt.
+احتفظ بـAPI_PUBLIC_URL الحالي طالما البوت على نفس الاستضافة.
+Discord OAuth Redirect يظل رابط API_PUBLIC_URL متبوعاً بـ/auth/discord/callback؛ لا تضع رابط GitHub Pages مكانه.
+لا تغيّر أسماء جداول قاعدة البيانات أو turbo-db.json؛ محفوظة للتوافق مع بياناتك.
+
+الأونرز:
+1445069224899907709 — الأونر الحالي
+1317806970891272232 — أونر
+1473659406649528425 — أونر
+كلهم لهم نفس صلاحيات الأونر على الموقع ومراجعات البوت.
+أمر /اعلان يحتفظ برتبة الإعلانات السابقة.
+
+سيحاول البوت عند أول تشغيل تحديث اسمه وصورته وبانره إلى NEXUS. إذا رفض Discord، سيظهر السبب في الكونسول ويمكن ضبطها يدوياً من صفحة البوت.
+كل إعدادات السيرفر والرولات والرومات الموجودة محفوظة. إذا كان الانتقال إلى Discord جديد، عدّل IDs في index.js وsupport-announcements.js.
+
+تم تحديث welcome.ogg إلى ترحيب عربي باسم نكسس مدته نحو 9 ثوانٍ.

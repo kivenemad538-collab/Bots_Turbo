@@ -4,17 +4,19 @@ import {joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerSta
 import {fileURLToPath} from 'node:url';
 export const SUPPORT_CHANNEL='1522093063072383138';
 export const ANNOUNCE_ROLE='1560384331858452560';
-export const greeting='مرحبًا بك في الدعم الفني الخاص بسيرفر ليجند. يرجى الانتظار، وسيكون أحد أعضاء الدعم معك قريبًا.';
+export const greeting='مرحبًا بك في الدعم الفني الخاص بسيرفر نكسس. يرجى الانتظار، وسيكون أحد أعضاء الدعم معك قريبًا.';
 export const canAnnounce=member=>Boolean(member?.roles?.cache?.has(ANNOUNCE_ROLE));
-export function announcementEmbed(title,text,icon){
- const e=new EmbedBuilder().setColor(0x168BFF).setAuthor({name:'LEGEND ROLEPLAY',...(icon?{iconURL:icon}:{})}).setTitle(title).setDescription(text).setFooter({text:'LEGEND RP Official Announcement'}).setTimestamp();
+export function announcementEmbed(title,text,icon,banner){
+ const e=new EmbedBuilder().setColor(0xff1616).setAuthor({name:'NEXUS ROLEPLAY',...(icon?{iconURL:icon}:{})}).setTitle(title).setDescription(text).setFooter({text:'NEXUS RP Official Announcement'}).setTimestamp();
+ if(banner)e.setImage(banner);
  return e;
 }
-export function installSupportAnnouncements(client,guildId){
+export function installSupportAnnouncements(client,guildId,frontendUrl){
+ const logoUrl=frontendUrl+'/nexus-logo.png',bannerUrl=frontendUrl+'/nexus-banner.png';
  let connection, connecting, queue=[], playing=false;
  const cooldown=new Map();
  const player=createAudioPlayer();
- const log=e=>console.error('[LEGEND support]',e?.message||e);
+ const log=e=>console.error('[NEXUS support]',e?.message||e);
  const audio=fileURLToPath(new URL('./welcome.ogg',import.meta.url));
  async function connect(){
   if(connection?.state.status===VoiceConnectionStatus.Ready&&client.guilds.cache.get(guildId)?.members.me?.voice.channelId===SUPPORT_CHANNEL)return connection;
@@ -45,10 +47,10 @@ export function installSupportAnnouncements(client,guildId){
  client.once(Events.ClientReady,async()=>{
   try{
    const guild=await client.guilds.fetch(guildId);
-   const command=new SlashCommandBuilder().setName('اعلان').setDescription('إرسال إعلان رسمي باسم ليجند').setDefaultMemberPermissions(0n)
+   const command=new SlashCommandBuilder().setName('اعلان').setDescription('إرسال إعلان رسمي باسم نكسس').setDefaultMemberPermissions(0n)
     .addChannelOption(o=>o.setName('الروم').setDescription('روم إرسال الإعلان').addChannelTypes(ChannelType.GuildText,ChannelType.GuildAnnouncement).setRequired(true));
    await guild.commands.create(command.toJSON());
-   console.log('[LEGEND] /اعلان registered. Enable role access in Server Settings > Integrations.');
+   console.log('[NEXUS] /اعلان registered. Enable role access in Server Settings > Integrations.');
   }catch(e){log(e)}
   connect().catch(log);
   setInterval(()=>connect().catch(log),30000).unref();
@@ -58,7 +60,7 @@ export function installSupportAnnouncements(client,guildId){
   if(newState.guild.id!==guildId||newState.member?.user.bot||newState.channelId!==SUPPORT_CHANNEL||oldState.channelId===SUPPORT_CHANNEL)return;
   const now=Date.now();if(now-(cooldown.get(newState.id)||0)<30000)return;cooldown.set(newState.id,now);
   if(cooldown.size>1000)for(const [id,t]of cooldown)if(now-t>60000)cooldown.delete(id);
-  newState.member.send({embeds:[new EmbedBuilder().setColor(0x168BFF).setTitle('أهلًا بك في دعم ليجند 💙').setDescription(`أهلًا <@${newState.id}>،\n${greeting}\nاكتب تفاصيل مشكلتك وجهز أي صور تساعدنا.`).setFooter({text:'LEGEND RP • الدعم الفني'})],allowedMentions:{parse:[]}}).catch(()=>console.warn('[LEGEND] Cannot DM support visitor: DMs disabled.'));
+  newState.member.send({embeds:[new EmbedBuilder().setColor(0xff1616).setThumbnail(logoUrl).setImage(bannerUrl).setTitle('أهلًا بك في دعم نكسس ❤️').setDescription(`أهلًا <@${newState.id}>،\n${greeting}\nاكتب تفاصيل مشكلتك وجهز أي صور تساعدنا.`).setFooter({text:'NEXUS RP • الدعم الفني'})],allowedMentions:{parse:[]}}).catch(()=>console.warn('[NEXUS] Cannot DM support visitor: DMs disabled.'));
   queue.push(newState.id);next();
  });
  client.on(Events.InteractionCreate,async i=>{
@@ -70,8 +72,8 @@ export function installSupportAnnouncements(client,guildId){
    if(!canAnnounce(member))return void await i.reply({content:'هذا الأمر متاح لرتبة الإعلانات المحددة فقط.',ephemeral:true});
    if(command){
     const channel=i.options.getChannel('الروم',true);
-    const form=new ModalBuilder().setCustomId(`legend-announce:${channel.id}`).setTitle('إعلان ليجند');
-    form.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('title').setLabel('عنوان الإعلان').setStyle(TextInputStyle.Short).setMaxLength(256).setValue('LEGEND ROLEPLAY')),
+    const form=new ModalBuilder().setCustomId(`legend-announce:${channel.id}`).setTitle('إعلان نكسس');
+    form.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('title').setLabel('عنوان الإعلان').setStyle(TextInputStyle.Short).setMaxLength(256).setValue('NEXUS ROLEPLAY')),
      new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('body').setLabel('الرسالة').setStyle(TextInputStyle.Paragraph).setMaxLength(4000).setRequired(true)));
     return void await i.showModal(form);
    }
@@ -83,8 +85,8 @@ export function installSupportAnnouncements(client,guildId){
    if(!channel.permissionsFor(me)?.has([PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages,PermissionFlagsBits.EmbedLinks]))throw Error('البوت يحتاج View Channel وSend Messages وEmbed Links في الروم.');
    const title=i.fields.getTextInputValue('title').trim(),body=i.fields.getTextInputValue('body').trim();
    if(!title||!body)throw Error('اكتب العنوان والرسالة.');
-   const message=await channel.send({embeds:[announcementEmbed(title,body,i.guild.iconURL()||client.user.displayAvatarURL())],allowedMentions:{parse:[]}});
-   await i.editReply({content:`تم إرسال إعلان ليجند: ${message.url}`});
+   const message=await channel.send({embeds:[announcementEmbed(title,body,logoUrl,bannerUrl)],allowedMentions:{parse:[]}});
+   await i.editReply({content:`تم إرسال إعلان نكسس: ${message.url}`});
   }catch(e){log(e);const payload={content:e.message||'تعذر إرسال الإعلان.'};if(i.deferred)await i.editReply(payload).catch(()=>{});else if(!i.replied)await i.reply({...payload,ephemeral:true}).catch(()=>{});}
  });
 }

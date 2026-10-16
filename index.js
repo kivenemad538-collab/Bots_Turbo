@@ -1,9 +1,10 @@
+import { OWNER_IDS, isOwnerId, resolveFrontendUrl } from './branding.js';
 import {installSupportAnnouncements} from './support-announcements.js';
 import {installCommunity,languagePayload} from './community-api.js';
 import { installCreators } from './creator-api.js';
 import { installStore } from './store-api.js';
 // ============================================================
-// LEGEND RP - WEBSITE API + DISCORD BOT
+// NEXUS RP - WEBSITE API + DISCORD BOT
 // كل كود البوت والـ Backend موجود في الملف ده فقط.
 // عدّل الـ IDs هنا فقط. التوكن والـ Secrets لا تضعها هنا.
 // ============================================================
@@ -18,7 +19,7 @@ import {
   ModalBuilder, TextInputBuilder, TextInputStyle, Events, PermissionFlagsBits, ChannelType
 } from 'discord.js';
 
-const BUILD_VERSION = 'LEGEND-V16-CREATOR-WORKFLOW';
+const BUILD_VERSION = 'NEXUS-V16-CREATOR-WORKFLOW';
 
 // ===================== DISCORD IDs ===========================
 const IDS = {
@@ -79,7 +80,7 @@ const seed = {
       police:{open:true},
       mechanic:{open:true,mode:'all',workshopId:''}
     },
-    aboutText:'Legend RP هو سيرفر رول بلاي عربي بنركز فيه على السيناريوهات والتفاعل وجودة التجربة.',
+    aboutText:'NEXUS RP هو سيرفر رول بلاي عربي بنركز فيه على السيناريوهات والتفاعل وجودة التجربة.',
     rules:[],
     news:[],
     logoImage:'',
@@ -199,6 +200,13 @@ function validateImportedDB(db){
 
 function ensureNewWebsiteFields(db){
   if(!db.settings || typeof db.settings!=='object') db.settings={};
+  if(db.settings.nexusBrandVersion !== 1){
+    db.settings.aboutText=String(db.settings.aboutText||seed.settings.aboutText).replace(/legend/gi,'NEXUS').replace(/ليجند/g,'نكسس');
+    const brandUrl=resolveFrontendUrl(process.env.FRONTEND_URL);
+    db.settings.logoImage=brandUrl+'/nexus-logo.png';
+    db.settings.cityBackground=brandUrl+'/nexus-banner.png';
+    db.settings.nexusBrandVersion=1;
+  }
   if(typeof db.settings.logoImage!=='string') db.settings.logoImage='';
   if(typeof db.settings.cityBackground!=='string') db.settings.cityBackground='';
   if(!Array.isArray(db.creatorApplications))db.creatorApplications=[];
@@ -219,7 +227,7 @@ const b64=o=>Buffer.from(JSON.stringify(o)).toString('base64url');
 function signToken(user, ttl=7*24*3600){const payload=b64({...user,exp:Math.floor(Date.now()/1000)+ttl});const sig=crypto.createHmac('sha256',secret()).update(payload).digest('base64url');return `${payload}.${sig}`}
 function verifyToken(token){try{const [p,s]=String(token||'').split('.');const good=crypto.createHmac('sha256',secret()).update(p).digest('base64url');if(!crypto.timingSafeEqual(Buffer.from(s),Buffer.from(good)))return null;const d=JSON.parse(Buffer.from(p,'base64url').toString());if(d.exp<Date.now()/1000)return null;return d}catch{return null}}
 function auth(req,res,next){const token=(req.headers.authorization||'').replace(/^Bearer\s+/i,'');const user=verifyToken(token);if(!user)return res.status(401).json({error:'LOGIN_REQUIRED'});req.user=user;next()}
-function isOwner(user){return String(user?.id||'')===String(IDS.OWNER_USER_ID)}
+function isOwner(user){return isOwnerId(user?.id)}
 function panelStaffEntry(user,db){return db?.panelAdmins?.find(a=>String(a.discordId)===String(user?.id))}
 function panelStaffRole(user,db){
   if(isOwner(user))return 'owner';
@@ -275,13 +283,13 @@ async function fetchDiscordProfile(discordId){
   return {discordId:id,username:'Unknown',globalName:'Unknown',avatarUrl:'https://cdn.discordapp.com/embed/avatars/0.png'};
 }
 
-const color=0x168cff;
+const color=0xff1616;
 const adminRoleIds=()=>new Set(IDS.ADMIN_ROLE_IDS.filter(Boolean));
 
 async function isReviewer(interaction){
   try{
     if(interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return true;
-    if(String(interaction.user?.id||'')===String(IDS.OWNER_USER_ID)) return true;
+    if(isOwner(interaction.user)) return true;
     const db=await readDB();
     if(db.panelAdmins?.some(a=>String(a.discordId)===String(interaction.user?.id))) return true;
     const ids=adminRoleIds();
@@ -295,7 +303,7 @@ async function dm(userId,payload){
   try{
     const u=await client.users.fetch(userId);
     let message=typeof payload==='string'?{content:payload}:payload;
-    if(message?.content&&!message.embeds){message={...message,content:undefined,embeds:[new EmbedBuilder().setColor(0x3978ff).setAuthor({name:'LEGEND / إشعار جديد'}).setTitle('تحديث من مدينة Legend').setDescription(String(message.content).slice(0,3800)).setImage(frontendUrl+'/legend-preview.png').setFooter({text:'LEGEND • تابع التفاصيل من حسابك على الموقع'}).setTimestamp()]};}
+    if(message?.content&&!message.embeds){message={...message,content:undefined,embeds:[new EmbedBuilder().setColor(0xff3939).setAuthor({name:'NEXUS / إشعار جديد'}).setTitle('تحديث من مدينة NEXUS').setDescription(String(message.content).slice(0,3800)).setImage(frontendUrl+'/nexus-banner.png').setFooter({text:'NEXUS • تابع التفاصيل من حسابك على الموقع'}).setTimestamp()]};}
     await community.send(u,message,userId);
     return true;
   }catch(e){
@@ -304,12 +312,12 @@ async function dm(userId,payload){
   }
 }
 
-function turboDmEmbed({title,description,fields=[],colorValue=color,footer='LEGEND • PLAYER SERVICES'}){
+function turboDmEmbed({title,description,fields=[],colorValue=color,footer='NEXUS • PLAYER SERVICES'}){
   const next=/قبولك نهائي|تصريح الدخول/.test(title)?'أهلًا بيك في المدينة. تابع دليل الدخول والقوانين من حسابك.':/رفض|لم تجتز/.test(title)?'راجع سبب القرار من الموقع. إعادة التقديم مرتبطة بالمدة الظاهرة في حسابك.':/حظر/.test(title)?'تفاصيل القرار موجودة في حسابك. تواصل مع الإدارة لو محتاج توضيح.':/مقابل/.test(title)?'راجع تفاصيل المقابلة وموعدها من حسابك، وخليك جاهز في الوقت المحدد.':'تابع حالة الطلب وأي تحديث جديد من حسابك على الموقع.';
-  return new EmbedBuilder().setColor(colorValue).setAuthor({name:'LEGEND / مركز خدمات اللاعبين'})
+  return new EmbedBuilder().setColor(colorValue).setAuthor({name:'NEXUS / مركز خدمات اللاعبين'})
     .setTitle(String(title).slice(0,256)).setDescription(String(description||'').slice(0,2800)+'\n\n**الخطوة الجاية**\n'+next)
     .addFields(fields.slice(0,20)).setURL(frontendUrl+'/#apply')
-    .setImage(frontendUrl+'/legend-preview.png').setFooter({text:footer}).setTimestamp();
+    .setImage(frontendUrl+'/nexus-banner.png').setFooter({text:footer}).setTimestamp();
 }
 
 async function role(userId,roleId,add=true){
@@ -334,14 +342,14 @@ async function postApplication(app){
   if(!client?.isReady()||!IDS.REVIEW_CHANNEL_ID)return;
   const ch=await client.channels.fetch(IDS.REVIEW_CHANNEL_ID);
   if(!ch?.isTextBased()) throw new Error('REVIEW_CHANNEL_NOT_TEXT');
-  const e=new EmbedBuilder().setColor(0x3978ff).setAuthor({name:'LEGEND / مراجعة دخول المدينة'}).setTitle(`ملف تقديم #${app.number} — ${app.realName}`).setDescription(`**متقدم جديد للمدينة**\n<@${app.discordId}>\nراجع القصة والإجابات، وبعدها اختار القرار من الأزرار.`).addFields(
+  const e=new EmbedBuilder().setColor(0xff3939).setAuthor({name:'NEXUS / مراجعة دخول المدينة'}).setTitle(`ملف تقديم #${app.number} — ${app.realName}`).setDescription(`**متقدم جديد للمدينة**\n<@${app.discordId}>\nراجع القصة والإجابات، وبعدها اختار القرار من الأزرار.`).addFields(
     {name:'العمر',value:String(app.age),inline:true},
     {name:'Discord',value:app.discordTag||app.discordId,inline:true},
     {name:'نوع الشخصية',value:({criminal:'شخصية إجرامية',police:'شرطي',mechanic:'ميكانيكي',ems:'مسعف',lawyer:'محامي',civilian:'مدني',business:'رجل أعمال'})[app.characterType]||'غير محدد',inline:true},
     {name:'قصة الشخصية',value:app.story.slice(0,1000)},
     ...app.answers.map((a,i)=>({name:`س${i+1}: ${a.q}`.slice(0,256),value:(a.a||'—').slice(0,900)})),
     {name:'مراجعة القصة',value:'مراجعة يدوية — لا يتم عرض نسبة AI غير موثوقة.'.slice(0,1024)}
-  ).setURL(frontendUrl+'/#admin').setFooter({text:`LEGEND • ملف التقديم ${app.number} • ${app.id}`}).setTimestamp();
+  ).setURL(frontendUrl+'/#admin').setFooter({text:`NEXUS • ملف التقديم ${app.number} • ${app.id}`}).setTimestamp();
 
   const row=new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`accept:${app.id}`).setLabel('قبول مبدئي').setStyle(ButtonStyle.Success),
@@ -355,7 +363,7 @@ async function notifyInterview(app,slot){
   const when=new Date(slot.at).toLocaleString('ar-EG',{dateStyle:'full',timeStyle:'short'});
   const embed=turboDmEmbed({
     title:'📅 تم حجز المقابلة الصوتية',
-    description:'تم تثبيت موعد المقابلة الصوتية الخاصة بك في **Legend RP**.',
+    description:'تم تثبيت موعد المقابلة الصوتية الخاصة بك في **NEXUS RP**.',
     fields:[
       {name:'رقم التقديم',value:`#${app.number}`,inline:true},
       {name:'الموعد',value:when,inline:false},
@@ -383,7 +391,7 @@ async function markVoicePassed(userId,by='admin'){
     await role(userId,IDS.ENTRY_ROLE_ID,true);
     const embed=turboDmEmbed({
       title:'✅ تم قبولك نهائيًا',
-      description:'مبروك! تم اجتياز المقابلة الصوتية بنجاح وتم منحك **تصريح الدخول** إلى Legend RP.',
+      description:'مبروك! تم اجتياز المقابلة الصوتية بنجاح وتم منحك **تصريح الدخول** إلى NEXUS RP.',
       fields:[
         {name:'الحالة',value:'مقبول نهائيًا',inline:true},
         {name:'الخطوة التالية',value:'يمكنك الآن الدخول للسيرفر وبدء تجربتك في الرول بلاي.',inline:false}
@@ -403,7 +411,7 @@ const JOB_TICKET_CATEGORIES={ems:IDS.JOB_TICKET_EMS_CATEGORY_ID,police:IDS.JOB_T
 
 async function isJobManager(interaction){
   try{
-    if(String(interaction.user?.id)===String(IDS.OWNER_USER_ID))return true;
+    if(isOwner(interaction.user))return true;
     const g=await client.guilds.fetch(IDS.JOB_GUILD_ID);
     const m=await g.members.fetch(interaction.user.id);
     return m.roles.cache.has(IDS.JOB_MANAGER_ROLE_ID);
@@ -426,7 +434,7 @@ async function postJobApplication(job){
     {name:'ليه عايز الوظيفة؟',value:String(job.why||'—').slice(0,1024)},
     {name:'أوقات التواجد',value:String(job.availability||'—').slice(0,1024)}
   ];
-  const embed=new EmbedBuilder().setColor(0x3978ff).setAuthor({name:'LEGEND / إدارة الوظائف'}).setTitle(`ملف ${JOB_LABELS[job.type]} • طلب #${job.number}`).setDescription('**طلب انضمام جديد**\nراجع بيانات وخبرة المتقدم قبل القبول وفتح تذكرة الاستكمال.').addFields(fields).setFooter({text:`Job Application ID: ${job.id}`}).setTimestamp();
+  const embed=new EmbedBuilder().setColor(0xff3939).setAuthor({name:'NEXUS / إدارة الوظائف'}).setTitle(`ملف ${JOB_LABELS[job.type]} • طلب #${job.number}`).setDescription('**طلب انضمام جديد**\nراجع بيانات وخبرة المتقدم قبل القبول وفتح تذكرة الاستكمال.').addFields(fields).setFooter({text:`Job Application ID: ${job.id}`}).setTimestamp();
   const row=new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`jobaccept:${job.id}`).setLabel('قبول وفتح تذكرة').setStyle(ButtonStyle.Success),
     new ButtonBuilder().setCustomId(`jobreject:${job.id}`).setLabel('رفض').setStyle(ButtonStyle.Danger)
@@ -452,9 +460,9 @@ async function createJobTicket(job){
     type:ChannelType.GuildText,
     parent:categoryId,
     permissionOverwrites:perms,
-    topic:`Legend Job Application ${job.id} | ${job.realName}`
+    topic:`NEXUS Job Application ${job.id} | ${job.realName}`
   });
-  const embed=new EmbedBuilder().setColor(0x3b8fb8).setTitle(`تذكرة قبول ${JOB_LABELS[job.type]}`).setDescription(applicantMember?`أهلًا <@${job.discordId}>، تم قبول تقديمك. الإدارة هتكمل معاك هنا.`:`تم قبول <@${job.discordId}> لكن العضو غير موجود داخل السيرفر حاليًا.`).addFields(
+  const embed=new EmbedBuilder().setColor(0xb83b3b).setTitle(`تذكرة قبول ${JOB_LABELS[job.type]}`).setDescription(applicantMember?`أهلًا <@${job.discordId}>، تم قبول تقديمك. الإدارة هتكمل معاك هنا.`:`تم قبول <@${job.discordId}> لكن العضو غير موجود داخل السيرفر حاليًا.`).addFields(
     {name:'الاسم',value:job.realName,inline:true},
     {name:'الوظيفة',value:JOB_LABELS[job.type],inline:true},
     ...(job.type==='mechanic'?[{name:'الورشة',value:job.workshopName||'—',inline:true}]:[])
@@ -472,8 +480,19 @@ async function startBot(){
   if(!process.env.DISCORD_BOT_TOKEN){console.warn('DISCORD_BOT_TOKEN is missing. Bot disabled.');return null}
   client=new Client({intents:[GatewayIntentBits.Guilds,GatewayIntentBits.GuildMembers,GatewayIntentBits.GuildVoiceStates]});
 
-  installSupportAnnouncements(client,IDS.GUILD_ID);
-  client.once(Events.ClientReady,c=>console.log(`Discord bot ready as ${c.user.tag}`));
+  installSupportAnnouncements(client,IDS.GUILD_ID,frontendUrl);
+  client.once(Events.ClientReady,async c=>{
+    console.log(`Discord bot ready as ${c.user.tag}`);
+    try {
+      const db=await readDB();
+      if(db.settings.nexusBotProfileVersion!==1){
+        if(c.user.username!=='NEXUS')await c.user.setUsername('NEXUS');
+        await c.user.setAvatar(await fs.readFile(new URL('./nexus-logo.png',import.meta.url)));
+        await c.user.setBanner(await fs.readFile(new URL('./nexus-banner.png',import.meta.url)));
+        await mutate(state=>{state.settings.nexusBotProfileVersion=1;});
+      }
+    }catch(error){console.warn('NEXUS profile update failed:',error.message);}
+  });
   client.on(Events.InteractionCreate,async i=>{try{
     if(i.isButton()&&(i.customId.startsWith('accept:')||i.customId.startsWith('reject:'))){
       if(!(await isReviewer(i))) return i.reply(languagePayload({content:'❌ ليس لديك صلاحية مراجعة التقديمات.',ephemeral:true},await community.languageFor(i.user.id)));
@@ -507,7 +526,7 @@ async function startBot(){
         try{ await role(app.discordId,IDS.VOICE_REVIEW_ROLE_ID,false); await role(app.discordId,IDS.PRE_ACCEPTED_ROLE_ID,true); }catch{ roleOk=false; }
         const acceptEmbed=turboDmEmbed({
           title:'✅ تم قبول تقديمك مبدئيًا',
-          description:'مبروك! تم قبول طلبك مبدئيًا في **Legend RP**.',
+          description:'مبروك! تم قبول طلبك مبدئيًا في **NEXUS RP**.',
           fields:[
             {name:'رقم التقديم',value:`#${app.number}`,inline:true},
             {name:'الحالة',value:'مقبول مبدئيًا',inline:true},
@@ -568,7 +587,7 @@ async function startBot(){
 
       const rejectEmbed=turboDmEmbed({
         title:'❌ تم رفض التقديم',
-        description:'تمت مراجعة تقديمك في **Legend RP** ولم يتم قبوله هذه المرة.',
+        description:'تمت مراجعة تقديمك في **NEXUS RP** ولم يتم قبوله هذه المرة.',
         fields:[
           {name:'رقم التقديم',value:`#${app.number}`,inline:true},
           {name:'الحالة',value:'مرفوض',inline:true},
@@ -599,7 +618,7 @@ async function startBot(){
 
 const app=express();
 const asyncRoute=fn=>(req,res,next)=>Promise.resolve(fn(req,res,next)).catch(next);
-const frontendUrl=(process.env.FRONTEND_URL||'http://127.0.0.1:5500').replace(/\/$/,'');
+const frontendUrl=resolveFrontendUrl(process.env.FRONTEND_URL);
 const frontendOrigin=(()=>{try{return new URL(frontendUrl).origin}catch{return frontendUrl}})();
 const allowedOrigins=[process.env.CORS_ORIGIN,frontendOrigin].filter(Boolean);
 
@@ -622,7 +641,7 @@ const questions=[
   'لو اتعرضت لتهديد بسلاح، هتتصرف إزاي؟',
   'هل ينفع تخرج من السيرفر أثناء سيناريو علشان تتجنب نتيجته؟ وضّح.',
   'لو عرفت معلومة من Discord خارج اللعبة، هل ينفع تستخدمها داخل الشخصية؟',
-  'احكي باختصار سيناريو رول بلاي تحب تعمله داخل Legend RP.'
+  'احكي باختصار سيناريو رول بلاي تحب تعمله داخل NEXUS RP.'
 ];
 
 function parseCookies(req){
@@ -641,7 +660,7 @@ function requireEnv(){
 }
 requireEnv();
 
-app.get('/health',(req,res)=>res.json({ok:true,name:'Legend RP',time:new Date().toISOString()}));
+app.get('/health',(req,res)=>res.json({ok:true,name:'NEXUS RP',time:new Date().toISOString()}));
 app.get('/api/public',asyncRoute(async(req,res)=>{
   const db=await readDB();
   res.json({
@@ -726,7 +745,7 @@ app.get('/api/me',auth,asyncRoute(async(req,res)=>{
   const booked=latest?.interviewSlotId?db.interviewSlots.find(s=>s.id===latest.interviewSlotId):null;
   const jobApplications=(db.jobApplications||[]).filter(a=>a.discordId===req.user.id).sort((a,b)=>b.createdAt-a.createdAt);
   const resolvedStaffRole=isOwner(req.user)?'owner':panelStaffRole(req.user,db);
-  res.json({user:req.user,isAdmin:isAdmin(req.user,db),isOwner:isOwner(req.user),isManager:isManager(req.user,db),staffRole:resolvedStaffRole,ownerUserId:String(IDS.OWNER_USER_ID),latest,canApply,waitMs,booked,jobApplications});
+  res.json({user:req.user,isAdmin:isAdmin(req.user,db),isOwner:isOwner(req.user),isManager:isManager(req.user,db),staffRole:resolvedStaffRole,ownerUserId:String(IDS.OWNER_USER_ID),ownerUserIds:[...OWNER_IDS],latest,canApply,waitMs,booked,jobApplications});
 }));
 
 app.post('/api/audit/event',asyncRoute(async(req,res)=>{
@@ -804,11 +823,10 @@ app.get('/api/admin/state',auth,admin,asyncRoute(async(req,res)=>{
     const profile=(entry.username&&entry.avatarUrl)?entry:({...entry,...await fetchDiscordProfile(entry.discordId)});
     return {...profile,role:entry.role==='manager'?'manager':'admin'};
   }));
-  const ownerProfile=await fetchDiscordProfile(IDS.OWNER_USER_ID);
-  const staffDirectory=[
-    {...ownerProfile,discordId:String(IDS.OWNER_USER_ID),role:'owner'},
-    ...panelAdmins
-  ];
+  const ownerProfiles=await Promise.all(OWNER_IDS.map(async discordId=>({
+    ...await fetchDiscordProfile(discordId),discordId,role:'owner'
+  })));
+  const staffDirectory=[...ownerProfiles,...panelAdmins.filter(entry=>!isOwnerId(entry.discordId))];
   const role=panelStaffRole(req.user,db)||'admin';
   res.json({...db,panelAdmins,staffDirectory,viewer:{id:req.user.id,role,isOwner:role==='owner',isManager:role==='owner'||role==='manager'}});
 }));
@@ -888,7 +906,7 @@ app.post('/api/admin/panel-admins',auth,managerOrOwner,asyncRoute(async(req,res)
   if(req.staffRole!=='owner' && requestedRole==='manager') return res.status(403).json({error:'OWNER_ONLY_FOR_MANAGER'});
   const staffRole=req.staffRole==='owner'?requestedRole:'admin';
   if(!/^\d{16,22}$/.test(discordId))return res.status(400).json({error:'INVALID_DISCORD_ID'});
-  if(discordId===String(IDS.OWNER_USER_ID))return res.status(400).json({error:'ALREADY_OWNER'});
+  if(isOwnerId(discordId))return res.status(400).json({error:'ALREADY_OWNER'});
   const profile=await fetchDiscordProfile(discordId);
   let entry;
   await mutate(db=>{
@@ -965,7 +983,7 @@ app.post('/api/admin/applications/:id/action',auth,admin,asyncRoute(async(req,re
   if(action==='pre_accept'){
     await role(a.discordId,IDS.VOICE_REVIEW_ROLE_ID,false);
     await role(a.discordId,IDS.PRE_ACCEPTED_ROLE_ID,true);
-    await dm(a.discordId,{embeds:[turboDmEmbed({title:'✅ تم قبول تقديمك مبدئيًا',description:'تم قبول طلبك مبدئيًا في **Legend RP**.',fields:[{name:'رقم التقديم',value:`#${a.number}`,inline:true},{name:'الخطوة التالية',value:'ادخل الموقع واختر موعد المقابلة الصوتية.',inline:false}],colorValue:0x22c55e})]});
+    await dm(a.discordId,{embeds:[turboDmEmbed({title:'✅ تم قبول تقديمك مبدئيًا',description:'تم قبول طلبك مبدئيًا في **NEXUS RP**.',fields:[{name:'رقم التقديم',value:`#${a.number}`,inline:true},{name:'الخطوة التالية',value:'ادخل الموقع واختر موعد المقابلة الصوتية.',inline:false}],colorValue:0x22c55e})]});
     await updateReviewMessage(a,`✅ قبول مبدئي من لوحة التحكم بواسطة <@${req.user.id}>`);
   }else if(action==='reject'){
     await role(a.discordId,IDS.VOICE_REVIEW_ROLE_ID,false);
@@ -1153,7 +1171,7 @@ app.use((err,req,res,next)=>{
 });
 
 const port=process.env.PORT||3000;
-app.listen(port,'0.0.0.0',()=>{console.log(`Legend API ${BUILD_VERSION} listening on ${port}`);mutate(db=>{db.audit.push({at:Date.now(),by:'system',action:'system_deploy',build:BUILD_VERSION})}).catch(()=>{})});
+app.listen(port,'0.0.0.0',()=>{console.log(`NEXUS API ${BUILD_VERSION} listening on ${port}`);mutate(db=>{db.audit.push({at:Date.now(),by:'system',action:'system_deploy',build:BUILD_VERSION})}).catch(()=>{})});
 startBot().catch(e=>console.error('Discord bot failed:',e));
 bindCreatorDiscord();
 community.bind();

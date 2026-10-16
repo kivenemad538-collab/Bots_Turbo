@@ -9,11 +9,11 @@ export function installStore({app,auth,admin,readDB,mutate,dm,frontendUrl,crypto
  const run=fn=>asyncRoute(async(req,res)=>{try{await fn(req,res);}catch(e){if(e.status)return res.status(e.status).json({error:e.message});throw e;}});
  const notify=async(order,content)=>{let ok=false;try{
  const accepted=order.status==='accepted',rejected=order.status==='rejected';
- const embed=new EmbedBuilder().setColor(accepted?0x3cbd96:rejected?0xef657f:0x477aff)
- .setAuthor({name:'LEGEND / متجر المدينة'}).setTitle(accepted?'تم قبول طلبك • جاهز للاستكمال':rejected?'تحديث قرار طلبك':'طلبك وصل • قيد المراجعة')
+ const embed=new EmbedBuilder().setColor(accepted?0x3cbd96:rejected?0xef657f:0xff4747)
+ .setAuthor({name:'NEXUS / متجر المدينة'}).setTitle(accepted?'تم قبول طلبك • جاهز للاستكمال':rejected?'تحديث قرار طلبك':'طلبك وصل • قيد المراجعة')
  .setDescription(String(content).slice(0,2000)+'\n\n**الخطوة الجاية**\n'+(accepted?'افتح تذكرة الاستلام من حسابك وتابع مع الدعم.':rejected?'راجع سبب الرفض. لو محتاج توضيح، تواصل مع الدعم.':'استنى مراجعة الإدارة. كل تحديث هيظهر في صفحة طلباتك.'))
  .addFields({name:'رقم الطلب',value:'#'+order.number,inline:true},{name:'المنتج',value:String(order.product.name).slice(0,1024),inline:true},{name:'متابعة الطلب',value:frontendUrl+'/#store'})
- .setURL(frontendUrl+'/#store').setImage(frontendUrl+'/legend-preview.png').setFooter({text:'LEGEND • المنتجات والطلبات وتذاكر الدعم'}).setTimestamp();
+ .setURL(frontendUrl+'/#store').setImage(frontendUrl+'/nexus-banner.png').setFooter({text:'NEXUS • المنتجات والطلبات وتذاكر الدعم'}).setTimestamp();
  ok=await dm(order.discordId,{embeds:[embed]});
  }catch{}await mutate(db=>{init(db);const o=db.storeOrders.find(x=>x.id===order.id);if(o)o.dmStatus=ok?'sent':'failed';});return ok;};
  const realUser=req=>{if(!/^\d{15,22}$/.test(req.user.id))fail('DISCORD_LOGIN_REQUIRED',403);};
