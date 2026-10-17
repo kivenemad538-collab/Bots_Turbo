@@ -1,3 +1,4 @@
+import {installMemberWelcome} from './member-welcome.js';
 import { OWNER_IDS, isOwnerId, resolveFrontendUrl, BUILD_ID, SUPPORT_AUDIO_FILE } from './branding.js';
 import {installSupportAnnouncements} from './support-announcements.js';
 import {installCommunity,languagePayload} from './community-api.js';
@@ -481,6 +482,7 @@ async function startBot(){
   client=new Client({intents:[GatewayIntentBits.Guilds,GatewayIntentBits.GuildMembers,GatewayIntentBits.GuildVoiceStates]});
 
   installSupportAnnouncements(client,IDS.GUILD_ID,frontendUrl);
+  installMemberWelcome(client,{guildId:IDS.GUILD_ID,frontendUrl});
   client.once(Events.ClientReady,async c=>{
     console.log(`Discord bot ready as ${c.user.tag}`);
     try {

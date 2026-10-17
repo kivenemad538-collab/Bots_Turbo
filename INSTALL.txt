@@ -1,4 +1,4 @@
-NEXUS BOT • IDENTITY V4
+NEXUS BOT • WELCOME + AUTO ROLE V5
 
 ارفع كل ملفات الأرشيف في جذر مشروع البوت ثم أعد النشر.
 احتفظ بنفس DISCORD_BOT_TOKEN وDISCORD_CLIENT_SECRET وSESSION_SECRET وقاعدة البيانات وDATA_FILE.
@@ -13,7 +13,15 @@ https://nexus-rp538.github.io/Nexus_Website
 هوية جديدة في الرسائل: اسم NEXUS، أحمر وفضي، اللوجو المتحرك وبانر جديد. سيحاول البوت تحديث الاسم والصورة والبانر عند التشغيل.
 بيانات التقديمات والتذاكر والأونرز محفوظة. أسماء جداول التخزين والـcookies القديمة باقية للتوافق.
 الأونرز: 1445069224899907709 و1317806970891272232 و1473659406649528425.
-استخدم /nexuscheck للتأكد من أن النسخة NEXUS-IDENTITY-V4.
+استخدم /nexuscheck للتأكد من أن النسخة NEXUS-WELCOME-AUTOROLE-V5.
 رابط Discord OAuth callback يظل رابط استضافة الـAPI متبوعاً بـ/auth/discord/callback.
 لو GitHub على Railway فقد الربط بسبب تغيير اسم حسابك، أعد ربط المستودع الموجود تحت nexus-rp538.
 الرسائل القديمة لا تتغير تلقائياً، جرّب رسالة جديدة.
+
+ترحيب الأعضاء الجدد:
+الروم 1522093056944242780، والرول التلقائي 1522093054377328731.
+فعّل Server Members Intent من Discord Developer Portal > Bot > Privileged Gateway Intents.
+البوت يحتاج Manage Roles، ورول البوت يكون أعلى من الرول التلقائي.
+وفي روم الترحيب يحتاج View Channel وSend Messages وEmbed Links.
+الترحيب وإضافة الرول عند دخول عضو جديد، وليس عند تسجيل الدخول للموقع.
+تم اختبار السلوك بمحاكاة أحداث Discord، ولم يتم إرسال رسالة فعلية من هنا.
