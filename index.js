@@ -1,4 +1,4 @@
-import { OWNER_IDS, isOwnerId, resolveFrontendUrl } from './branding.js';
+import { OWNER_IDS, isOwnerId, resolveFrontendUrl, BUILD_ID, SUPPORT_AUDIO_FILE } from './branding.js';
 import {installSupportAnnouncements} from './support-announcements.js';
 import {installCommunity,languagePayload} from './community-api.js';
 import { installCreators } from './creator-api.js';
@@ -19,7 +19,7 @@ import {
   ModalBuilder, TextInputBuilder, TextInputStyle, Events, PermissionFlagsBits, ChannelType
 } from 'discord.js';
 
-const BUILD_VERSION = 'NEXUS-V16-CREATOR-WORKFLOW';
+const BUILD_VERSION = BUILD_ID;
 
 // ===================== DISCORD IDs ===========================
 const IDS = {
@@ -200,12 +200,12 @@ function validateImportedDB(db){
 
 function ensureNewWebsiteFields(db){
   if(!db.settings || typeof db.settings!=='object') db.settings={};
-  if(db.settings.nexusBrandVersion !== 1){
-    db.settings.aboutText=String(db.settings.aboutText||seed.settings.aboutText).replace(/legend/gi,'NEXUS').replace(/ليجند/g,'نكسس');
+  if(db.settings.nexusBrandVersion !== 4){
+    db.settings.aboutText='أهلًا بيك في NEXUS. هنا بتبدأ بشخصية، وتبني مكانك بتصرفاتك وحكايتك. اقرأ القوانين، قدّم على الدخول، وخلي أول خطوة ليك محسوبة.';
     const brandUrl=resolveFrontendUrl(process.env.FRONTEND_URL);
-    db.settings.logoImage=brandUrl+'/nexus-logo.png';
-    db.settings.cityBackground=brandUrl+'/nexus-banner.png';
-    db.settings.nexusBrandVersion=1;
+    db.settings.logoImage=brandUrl+'/nexus-motion.webp?v=4';
+    db.settings.cityBackground=brandUrl+'/nexus-banner.png?v=4';
+    db.settings.nexusBrandVersion=4;
   }
   if(typeof db.settings.logoImage!=='string') db.settings.logoImage='';
   if(typeof db.settings.cityBackground!=='string') db.settings.cityBackground='';
@@ -303,7 +303,7 @@ async function dm(userId,payload){
   try{
     const u=await client.users.fetch(userId);
     let message=typeof payload==='string'?{content:payload}:payload;
-    if(message?.content&&!message.embeds){message={...message,content:undefined,embeds:[new EmbedBuilder().setColor(0xff3939).setAuthor({name:'NEXUS / إشعار جديد'}).setTitle('تحديث من مدينة NEXUS').setDescription(String(message.content).slice(0,3800)).setImage(frontendUrl+'/nexus-banner.png').setFooter({text:'NEXUS • تابع التفاصيل من حسابك على الموقع'}).setTimestamp()]};}
+    if(message?.content&&!message.embeds){message={...message,content:undefined,embeds:[new EmbedBuilder().setColor(0xff3939).setAuthor({name:'NEXUS • إشعار جديد'}).setTitle('تحديث من مدينة NEXUS').setDescription(String(message.content).slice(0,3800)).setImage(frontendUrl+'/nexus-banner.png').setFooter({text:'NEXUS • تابع التفاصيل من حسابك على الموقع'}).setTimestamp()]};}
     await community.send(u,message,userId);
     return true;
   }catch(e){
@@ -314,7 +314,7 @@ async function dm(userId,payload){
 
 function turboDmEmbed({title,description,fields=[],colorValue=color,footer='NEXUS • PLAYER SERVICES'}){
   const next=/قبولك نهائي|تصريح الدخول/.test(title)?'أهلًا بيك في المدينة. تابع دليل الدخول والقوانين من حسابك.':/رفض|لم تجتز/.test(title)?'راجع سبب القرار من الموقع. إعادة التقديم مرتبطة بالمدة الظاهرة في حسابك.':/حظر/.test(title)?'تفاصيل القرار موجودة في حسابك. تواصل مع الإدارة لو محتاج توضيح.':/مقابل/.test(title)?'راجع تفاصيل المقابلة وموعدها من حسابك، وخليك جاهز في الوقت المحدد.':'تابع حالة الطلب وأي تحديث جديد من حسابك على الموقع.';
-  return new EmbedBuilder().setColor(colorValue).setAuthor({name:'NEXUS / مركز خدمات اللاعبين'})
+  return new EmbedBuilder().setColor(colorValue).setAuthor({name:'NEXUS • مركز خدمات اللاعبين'})
     .setTitle(String(title).slice(0,256)).setDescription(String(description||'').slice(0,2800)+'\n\n**الخطوة الجاية**\n'+next)
     .addFields(fields.slice(0,20)).setURL(frontendUrl+'/#apply')
     .setImage(frontendUrl+'/nexus-banner.png').setFooter({text:footer}).setTimestamp();
@@ -342,7 +342,7 @@ async function postApplication(app){
   if(!client?.isReady()||!IDS.REVIEW_CHANNEL_ID)return;
   const ch=await client.channels.fetch(IDS.REVIEW_CHANNEL_ID);
   if(!ch?.isTextBased()) throw new Error('REVIEW_CHANNEL_NOT_TEXT');
-  const e=new EmbedBuilder().setColor(0xff3939).setAuthor({name:'NEXUS / مراجعة دخول المدينة'}).setTitle(`ملف تقديم #${app.number} — ${app.realName}`).setDescription(`**متقدم جديد للمدينة**\n<@${app.discordId}>\nراجع القصة والإجابات، وبعدها اختار القرار من الأزرار.`).addFields(
+  const e=new EmbedBuilder().setColor(0xff3939).setAuthor({name:'NEXUS • مراجعة دخول المدينة'}).setTitle(`ملف تقديم #${app.number} — ${app.realName}`).setDescription(`**متقدم جديد للمدينة**\n<@${app.discordId}>\nراجع القصة والإجابات، وبعدها اختار القرار من الأزرار.`).addFields(
     {name:'العمر',value:String(app.age),inline:true},
     {name:'Discord',value:app.discordTag||app.discordId,inline:true},
     {name:'نوع الشخصية',value:({criminal:'شخصية إجرامية',police:'شرطي',mechanic:'ميكانيكي',ems:'مسعف',lawyer:'محامي',civilian:'مدني',business:'رجل أعمال'})[app.characterType]||'غير محدد',inline:true},
@@ -434,7 +434,7 @@ async function postJobApplication(job){
     {name:'ليه عايز الوظيفة؟',value:String(job.why||'—').slice(0,1024)},
     {name:'أوقات التواجد',value:String(job.availability||'—').slice(0,1024)}
   ];
-  const embed=new EmbedBuilder().setColor(0xff3939).setAuthor({name:'NEXUS / إدارة الوظائف'}).setTitle(`ملف ${JOB_LABELS[job.type]} • طلب #${job.number}`).setDescription('**طلب انضمام جديد**\nراجع بيانات وخبرة المتقدم قبل القبول وفتح تذكرة الاستكمال.').addFields(fields).setFooter({text:`Job Application ID: ${job.id}`}).setTimestamp();
+  const embed=new EmbedBuilder().setColor(0xff3939).setAuthor({name:'NEXUS • إدارة الوظائف'}).setTitle(`ملف ${JOB_LABELS[job.type]} • طلب #${job.number}`).setDescription('**طلب انضمام جديد**\nراجع بيانات وخبرة المتقدم قبل القبول وفتح تذكرة الاستكمال.').addFields(fields).setFooter({text:`Job Application ID: ${job.id}`}).setTimestamp();
   const row=new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`jobaccept:${job.id}`).setLabel('قبول وفتح تذكرة').setStyle(ButtonStyle.Success),
     new ButtonBuilder().setCustomId(`jobreject:${job.id}`).setLabel('رفض').setStyle(ButtonStyle.Danger)
@@ -468,7 +468,7 @@ async function createJobTicket(job){
     ...(job.type==='mechanic'?[{name:'الورشة',value:job.workshopName||'—',inline:true}]:[])
   );
   const row=new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`jobclaim:${job.id}`).setLabel('استلام التذكرة').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId(`jobclaim:${job.id}`).setLabel('استلام التذكرة').setStyle(ButtonStyle.Danger),
     new ButtonBuilder().setCustomId(`jobclose:${job.id}`).setLabel('إغلاق التذكرة').setStyle(ButtonStyle.Secondary)
   );
   const m=await community.send(channel,{content:`<@${job.discordId}> <@&${IDS.JOB_MANAGER_ROLE_ID}>`,embeds:[embed],components:[row]});
@@ -485,12 +485,18 @@ async function startBot(){
     console.log(`Discord bot ready as ${c.user.tag}`);
     try {
       const db=await readDB();
-      if(db.settings.nexusBotProfileVersion!==1){
-        if(c.user.username!=='NEXUS')await c.user.setUsername('NEXUS');
-        await c.user.setAvatar(await fs.readFile(new URL('./nexus-logo.png',import.meta.url)));
-        await c.user.setBanner(await fs.readFile(new URL('./nexus-banner.png',import.meta.url)));
-        await mutate(state=>{state.settings.nexusBotProfileVersion=1;});
+      if(db.settings.nexusBotProfileVersion!==4){
+        const operations=[
+          ['username',()=>c.user.username==='NEXUS'?Promise.resolve():c.user.setUsername('NEXUS')],
+          ['avatar',async()=>c.user.setAvatar(await fs.readFile(new URL('./nexus-logo.png',import.meta.url)))],
+          ['banner',async()=>c.user.setBanner(await fs.readFile(new URL('./nexus-banner.png',import.meta.url)))],
+          ['nickname',async()=>{const guild=await c.guilds.fetch(IDS.GUILD_ID);const me=await guild.members.fetchMe();if(me.nickname&&me.nickname!=='NEXUS')await me.setNickname('NEXUS');}]
+        ];
+        const results=await Promise.allSettled(operations.map(async([label,run])=>{try{await run();}catch(error){throw new Error(label+': '+error.message);}}));
+        for(const result of results)if(result.status==='rejected')console.warn('[NEXUS profile]',result.reason.message);
+        if(results.every(result=>result.status==='fulfilled'))await mutate(state=>{state.settings.nexusBotProfileVersion=4;});
       }
+      console.log(`[${BUILD_ID}] Bot ${c.user.id}; support audio ${SUPPORT_AUDIO_FILE}`);
     }catch(error){console.warn('NEXUS profile update failed:',error.message);}
   });
   client.on(Events.InteractionCreate,async i=>{try{
@@ -660,7 +666,7 @@ function requireEnv(){
 }
 requireEnv();
 
-app.get('/health',(req,res)=>res.json({ok:true,name:'NEXUS RP',time:new Date().toISOString()}));
+app.get('/health',(req,res)=>res.json({ok:true,name:'NEXUS RP',build:BUILD_ID,supportAudio:SUPPORT_AUDIO_FILE,time:new Date().toISOString()}));
 app.get('/api/public',asyncRoute(async(req,res)=>{
   const db=await readDB();
   res.json({

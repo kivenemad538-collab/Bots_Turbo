@@ -10,7 +10,7 @@ export function installStore({app,auth,admin,readDB,mutate,dm,frontendUrl,crypto
  const notify=async(order,content)=>{let ok=false;try{
  const accepted=order.status==='accepted',rejected=order.status==='rejected';
  const embed=new EmbedBuilder().setColor(accepted?0x3cbd96:rejected?0xef657f:0xff4747)
- .setAuthor({name:'NEXUS / متجر المدينة'}).setTitle(accepted?'تم قبول طلبك • جاهز للاستكمال':rejected?'تحديث قرار طلبك':'طلبك وصل • قيد المراجعة')
+ .setAuthor({name:'NEXUS • متجر المدينة'}).setTitle(accepted?'تم قبول طلبك • جاهز للاستكمال':rejected?'تحديث قرار طلبك':'طلبك وصل • قيد المراجعة')
  .setDescription(String(content).slice(0,2000)+'\n\n**الخطوة الجاية**\n'+(accepted?'افتح تذكرة الاستلام من حسابك وتابع مع الدعم.':rejected?'راجع سبب الرفض. لو محتاج توضيح، تواصل مع الدعم.':'استنى مراجعة الإدارة. كل تحديث هيظهر في صفحة طلباتك.'))
  .addFields({name:'رقم الطلب',value:'#'+order.number,inline:true},{name:'المنتج',value:String(order.product.name).slice(0,1024),inline:true},{name:'متابعة الطلب',value:frontendUrl+'/#store'})
  .setURL(frontendUrl+'/#store').setImage(frontendUrl+'/nexus-banner.png').setFooter({text:'NEXUS • المنتجات والطلبات وتذاكر الدعم'}).setTimestamp();

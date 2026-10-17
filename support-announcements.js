@@ -1,10 +1,11 @@
+import {BUILD_ID, SUPPORT_AUDIO_FILE, brandPayload, isOwnerId} from './branding.js';
 import {createReadStream} from 'node:fs';
 import {Events, EmbedBuilder, SlashCommandBuilder, ChannelType, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, PermissionFlagsBits} from 'discord.js';
 import {joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, VoiceConnectionStatus, entersState, StreamType} from '@discordjs/voice';
 import {fileURLToPath} from 'node:url';
 export const SUPPORT_CHANNEL='1522093063072383138';
 export const ANNOUNCE_ROLE='1560384331858452560';
-export const greeting='مرحبًا بك في الدعم الفني الخاص بسيرفر نكسس. يرجى الانتظار، وسيكون أحد أعضاء الدعم معك قريبًا.';
+export const greeting='مرحبًا بك في الدعم الفني الخاص بمدينتنا.';
 export const canAnnounce=member=>Boolean(member?.roles?.cache?.has(ANNOUNCE_ROLE));
 export function announcementEmbed(title,text,icon,banner){
  const e=new EmbedBuilder().setColor(0xff1616).setAuthor({name:'NEXUS ROLEPLAY',...(icon?{iconURL:icon}:{})}).setTitle(title).setDescription(text).setFooter({text:'NEXUS RP Official Announcement'}).setTimestamp();
@@ -12,12 +13,12 @@ export function announcementEmbed(title,text,icon,banner){
  return e;
 }
 export function installSupportAnnouncements(client,guildId,frontendUrl){
- const logoUrl=frontendUrl+'/nexus-logo.png',bannerUrl=frontendUrl+'/nexus-banner.png';
+ const logoUrl=frontendUrl+'/nexus-logo.png?v=4',bannerUrl=frontendUrl+'/nexus-banner.png?v=4';
  let connection, connecting, queue=[], playing=false;
  const cooldown=new Map();
  const player=createAudioPlayer();
  const log=e=>console.error('[NEXUS support]',e?.message||e);
- const audio=fileURLToPath(new URL('./welcome.ogg',import.meta.url));
+ const audio=fileURLToPath(new URL('./'+SUPPORT_AUDIO_FILE,import.meta.url));
  async function connect(){
   if(connection?.state.status===VoiceConnectionStatus.Ready&&client.guilds.cache.get(guildId)?.members.me?.voice.channelId===SUPPORT_CHANNEL)return connection;
   if(connecting)return connecting;
@@ -50,6 +51,7 @@ export function installSupportAnnouncements(client,guildId,frontendUrl){
    const command=new SlashCommandBuilder().setName('اعلان').setDescription('إرسال إعلان رسمي باسم نكسس').setDefaultMemberPermissions(0n)
     .addChannelOption(o=>o.setName('الروم').setDescription('روم إرسال الإعلان').addChannelTypes(ChannelType.GuildText,ChannelType.GuildAnnouncement).setRequired(true));
    await guild.commands.create(command.toJSON());
+   await guild.commands.create(new SlashCommandBuilder().setName('nexuscheck').setDescription('فحص نسخة NEXUS والصوت والهوية').toJSON());
    console.log('[NEXUS] /اعلان registered. Enable role access in Server Settings > Integrations.');
   }catch(e){log(e)}
   connect().catch(log);
@@ -60,10 +62,14 @@ export function installSupportAnnouncements(client,guildId,frontendUrl){
   if(newState.guild.id!==guildId||newState.member?.user.bot||newState.channelId!==SUPPORT_CHANNEL||oldState.channelId===SUPPORT_CHANNEL)return;
   const now=Date.now();if(now-(cooldown.get(newState.id)||0)<30000)return;cooldown.set(newState.id,now);
   if(cooldown.size>1000)for(const [id,t]of cooldown)if(now-t>60000)cooldown.delete(id);
-  newState.member.send({embeds:[new EmbedBuilder().setColor(0xff1616).setThumbnail(logoUrl).setImage(bannerUrl).setTitle('أهلًا بك في دعم نكسس ❤️').setDescription(`أهلًا <@${newState.id}>،\n${greeting}\nاكتب تفاصيل مشكلتك وجهز أي صور تساعدنا.`).setFooter({text:'NEXUS RP • الدعم الفني'})],allowedMentions:{parse:[]}}).catch(()=>console.warn('[NEXUS] Cannot DM support visitor: DMs disabled.'));
+  newState.member.send(brandPayload({embeds:[new EmbedBuilder().setColor(0xff1616).setThumbnail(logoUrl).setImage(bannerUrl).setTitle('NEXUS • الدعم الفني').setDescription(`أهلًا <@${newState.id}>،\n${greeting}\nقولنا إيه اللي محتاج مساعدة فيه، وجهّز صورة لو فيه رسالة خطأ.`).setFooter({text:'NEXUS RP • الدعم الفني'})],allowedMentions:{parse:[]}},frontendUrl)).catch(()=>console.warn('[NEXUS] Cannot DM support visitor: DMs disabled.'));
   queue.push(newState.id);next();
  });
  client.on(Events.InteractionCreate,async i=>{
+  if(i.isChatInputCommand()&&i.commandName==='nexuscheck'){
+   if(!isOwnerId(i.user.id))return void await i.reply({content:'الأونرز فقط.',ephemeral:true});
+   return void await i.reply({content:`NEXUS ✅\nVersion: ${BUILD_ID}\nBot: ${client.user.id}\nAudio: ${SUPPORT_AUDIO_FILE}\nSupport voice: ${client.guilds.cache.get(guildId)?.members.me?.voice.channelId||'disconnected'}`,ephemeral:true});
+  }
   const command=i.isChatInputCommand()&&i.commandName==='اعلان';
   const modal=i.isModalSubmit()&&i.customId.startsWith('legend-announce:');
   if(!command&&!modal)return;
@@ -85,7 +91,7 @@ export function installSupportAnnouncements(client,guildId,frontendUrl){
    if(!channel.permissionsFor(me)?.has([PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages,PermissionFlagsBits.EmbedLinks]))throw Error('البوت يحتاج View Channel وSend Messages وEmbed Links في الروم.');
    const title=i.fields.getTextInputValue('title').trim(),body=i.fields.getTextInputValue('body').trim();
    if(!title||!body)throw Error('اكتب العنوان والرسالة.');
-   const message=await channel.send({embeds:[announcementEmbed(title,body,logoUrl,bannerUrl)],allowedMentions:{parse:[]}});
+   const message=await channel.send(brandPayload({embeds:[announcementEmbed(title,body,logoUrl,bannerUrl)],allowedMentions:{parse:[]}},frontendUrl));
    await i.editReply({content:`تم إرسال إعلان نكسس: ${message.url}`});
   }catch(e){log(e);const payload={content:e.message||'تعذر إرسال الإعلان.'};if(i.deferred)await i.editReply(payload).catch(()=>{});else if(!i.replied)await i.reply({...payload,ephemeral:true}).catch(()=>{});}
  });
