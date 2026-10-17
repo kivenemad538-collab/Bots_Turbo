@@ -1,3 +1,4 @@
+import {reviewApplication, reviewState, reviewDiscordText} from './ai-review.js';
 import {installMemberWelcome} from './member-welcome.js';
 import { OWNER_IDS, isOwnerId, resolveFrontendUrl, BUILD_ID, SUPPORT_AUDIO_FILE } from './branding.js';
 import {installSupportAnnouncements} from './support-announcements.js';
@@ -243,11 +244,47 @@ async function admin(req,res,next){try{const db=await readDB();if(!isAdmin(req.u
 async function owner(req,res,next){if(!isOwner(req.user))return res.status(403).json({error:'OWNER_ONLY'});next()}
 async function managerOrOwner(req,res,next){try{const db=req.db||await readDB();const role=panelStaffRole(req.user,db);if(role!=='owner'&&role!=='manager')return res.status(403).json({error:'MANAGER_ONLY'});req.db=db;req.staffRole=role;next()}catch(e){next(e)}}
 
-// ===================== STORY REVIEW =========================
-// لا نعرض نسبة "ذكاء اصطناعي" لأن النص وحده لا يسمح بقياس موثوق.
-function inspectStory(text=''){
- const t=String(text||'').trim();
- return {score:null,label:'مراجعة يدوية',warning:'راجع القصة ومحتواها يدويًا. لا يتم إصدار نسبة AI تلقائية.',reasons:[],length:t.length};
+// ===================== GEMINI REVIEW QUEUE ==================
+const aiJobs = new Map();
+let aiQueue = Promise.resolve();
+let aiBlockedUntil = 0;
+const aiRetryByUser = new Map();
+function queueReview(id) {
+  if(aiJobs.has(id))return aiJobs.get(id);
+  const job=aiQueue.then(async()=>{
+    let application, rules, canCall=false;
+    await mutate(db=>{
+      application=db.applications.find(a=>a.id===id);if(!application)return;
+      rules=(db.settings.rules||[]).join('\n');
+      const day=new Date().toISOString().slice(0,10);
+      if(db.aiUsage?.day!==day)db.aiUsage={day,count:0};
+      const limit=Math.min(100,Math.max(1,Number(process.env.GEMINI_DAILY_LIMIT)||20));
+      if(!process.env.GEMINI_API_KEY?.trim()){application.ai=reviewState('missing_key');return;}
+      if(Date.now()<aiBlockedUntil||db.aiUsage.count>=limit){application.ai=reviewState('quota','LOCAL_LIMIT');return;}
+      db.aiUsage.count++;application.ai=reviewState('processing');canCall=true;
+    });
+    if(!application)return;
+    if(canCall){
+      const result=await reviewApplication(application,rules);
+      if(result.status==='quota')aiBlockedUntil=Date.now()+60000;
+      await mutate(db=>{const a=db.applications.find(x=>x.id===id);if(a){a.ai=result;application=a;}});
+    }
+    await refreshAiMessage(application);
+  }).catch(()=>console.warn('[NEXUS AI] Review queue failed; saved application is available.')).finally(()=>aiJobs.delete(id));
+  aiJobs.set(id,job);aiQueue=job;return job;
+}
+
+async function refreshAiMessage(application) {
+    try{
+      if(application.reviewMessageId&&client?.isReady()){
+        const ch=await client.channels.fetch(IDS.REVIEW_CHANNEL_ID);
+        const msg=await ch.messages.fetch(application.reviewMessageId);
+        const embed=EmbedBuilder.from(msg.embeds[0]);
+        const fields=(embed.data.fields||[]).filter(f=>f.name!=='مراجعة القصة'&&f.name!=='تقييم Gemini');
+        embed.setFields(...fields,{name:'تقييم Gemini',value:reviewDiscordText(application.ai)});
+        await msg.edit({embeds:[embed]});
+      }
+    }catch{console.warn('[NEXUS AI] Could not update review message. Review remains saved.');}
 }
 
 // ===================== DISCORD BOT ==========================
@@ -348,8 +385,8 @@ async function postApplication(app){
     {name:'Discord',value:app.discordTag||app.discordId,inline:true},
     {name:'نوع الشخصية',value:({criminal:'شخصية إجرامية',police:'شرطي',mechanic:'ميكانيكي',ems:'مسعف',lawyer:'محامي',civilian:'مدني',business:'رجل أعمال'})[app.characterType]||'غير محدد',inline:true},
     {name:'قصة الشخصية',value:app.story.slice(0,1000)},
-    ...app.answers.map((a,i)=>({name:`س${i+1}: ${a.q}`.slice(0,256),value:(a.a||'—').slice(0,900)})),
-    {name:'مراجعة القصة',value:'مراجعة يدوية — لا يتم عرض نسبة AI غير موثوقة.'.slice(0,1024)}
+    ...app.answers.map((a,i)=>({name:`س${i+1}: ${a.q}`.slice(0,256),value:(a.a||'—').slice(0,350)})),
+    {name:'تقييم Gemini',value:reviewDiscordText(app.ai)}
   ).setURL(frontendUrl+'/#admin').setFooter({text:`NEXUS • ملف التقديم ${app.number} • ${app.id}`}).setTimestamp();
 
   const row=new ActionRowBuilder().addComponents(
@@ -668,7 +705,7 @@ function requireEnv(){
 }
 requireEnv();
 
-app.get('/health',(req,res)=>res.json({ok:true,name:'NEXUS RP',build:BUILD_ID,supportAudio:SUPPORT_AUDIO_FILE,time:new Date().toISOString()}));
+app.get('/health',(req,res)=>res.json({ok:true,name:'NEXUS RP',build:BUILD_ID,supportAudio:SUPPORT_AUDIO_FILE,aiConfigured:!!process.env.GEMINI_API_KEY?.trim(),time:new Date().toISOString()}));
 app.get('/api/public',asyncRoute(async(req,res)=>{
   const db=await readDB();
   res.json({
@@ -777,8 +814,8 @@ app.post('/api/applications',auth,asyncRoute(async(req,res)=>{
   const {realName,age,story,answers,characterType}=req.body||{};
   if(!/^\S+\s+\S+/.test(String(realName||'').trim()))return res.status(400).json({error:'REAL_NAME_TWO_PARTS'});
   if(Number(age)<16||Number(age)>80)return res.status(400).json({error:'INVALID_AGE'});
-  if(String(story||'').trim().length<120)return res.status(400).json({error:'STORY_TOO_SHORT'});
-  if(!Array.isArray(answers)||answers.length!==questions.length||answers.some(x=>String(x||'').trim().length<10))return res.status(400).json({error:'ANSWERS_INCOMPLETE'});
+  if(String(story||'').length>12000||String(story||'').trim().length<120)return res.status(400).json({error:'STORY_TOO_SHORT'});
+  if(!Array.isArray(answers)||answers.length!==questions.length||answers.some(x=>String(x||'').trim().length<10||String(x||'').length>3000))return res.status(400).json({error:'ANSWERS_INCOMPLETE'});
   const allowedCharacterTypes=['criminal','police','mechanic','ems','lawyer','civilian','business'];
   if(!allowedCharacterTypes.includes(String(characterType||'')))return res.status(400).json({error:'INVALID_CHARACTER_TYPE'});
 
@@ -792,7 +829,7 @@ app.post('/api/applications',auth,asyncRoute(async(req,res)=>{
     created={
       id:crypto.randomUUID(),number:db.counters.application,discordId:req.user.id,discordTag:req.user.username,
       realName:String(realName).trim(),age:Number(age),story:String(story).trim(),characterType:String(characterType),
-      answers:questions.map((q,i)=>({q,a:String(answers[i]).trim()})),ai:inspectStory(story),
+      answers:questions.map((q,i)=>({q,a:String(answers[i]).trim()})),ai:reviewState(),
       status:'pending',createdAt:Date.now(),cooldownUntil:0
     };
     db.applications.push(created);
@@ -800,7 +837,11 @@ app.post('/api/applications',auth,asyncRoute(async(req,res)=>{
   });
   // The database save is authoritative. Discord latency cannot turn a saved request into an error.
   res.json({ok:true,application:created});
-  try{await role(created.discordId,IDS.VOICE_REVIEW_ROLE_ID,true);await postApplication(created);}
+  queueReview(created.id);
+  try{await role(created.discordId,IDS.VOICE_REVIEW_ROLE_ID,true);await postApplication(created);
+    const updated=(await readDB()).applications.find(a=>a.id===created.id);
+    if(updated&&updated.ai.status!=='queued'&&updated.ai.status!=='processing')await refreshAiMessage(updated);
+  }
   catch(e){console.error('Saved application Discord notification failed:',created.id,e.message);}
 
 }));
@@ -947,6 +988,19 @@ async function updateReviewMessage(appRecord,text){
     await msg.edit({content:text,components:[]});
   }catch(e){console.warn('Review message update failed:',e.message)}
 }
+
+app.post('/api/admin/applications/:id/ai-review',auth,admin,asyncRoute(async(req,res)=>{
+  const record=req.db.applications.find(a=>a.id===req.params.id);
+  if(!record)return res.status(404).json({error:'APPLICATION_NOT_FOUND'});
+  if(aiJobs.has(record.id))return res.status(202).json({ok:true,status:'queued'});
+  if(record.ai?.status==='completed')return res.json({ok:true,status:'completed',ai:record.ai});
+  if(!process.env.GEMINI_API_KEY?.trim())return res.status(503).json({error:'GEMINI_KEY_MISSING'});
+  if(Date.now()-(aiRetryByUser.get(req.user.id)||0)<60000)return res.status(429).json({error:'WAIT_ONE_MINUTE'});
+  aiRetryByUser.set(req.user.id,Date.now());
+  if(aiRetryByUser.size>1000)for(const [id,t]of aiRetryByUser)if(Date.now()-t>60000)aiRetryByUser.delete(id);
+  await mutate(db=>{const a=db.applications.find(x=>x.id===record.id);if(a)a.ai=reviewState();});
+  queueReview(record.id);res.status(202).json({ok:true,status:'queued'});
+}));
 
 app.post('/api/admin/applications/:id/action',auth,admin,asyncRoute(async(req,res)=>{
   const action=String(req.body?.action||'').trim();
@@ -1185,3 +1239,6 @@ bindCreatorDiscord();
 community.bind();
 setInterval(checkLives,Math.max(1,Number(process.env.LIVE_CHECK_MINUTES||3))*60*1000);
 setTimeout(checkLives,5000);
+
+// Resume saved unfinished jobs after a host restart; terminal failures await staff retry.
+mutate(db=>db.applications.filter(a=>['queued','processing'].includes(a.ai?.status)).map(a=>a.id)).then(ids=>{for(const id of ids)queueReview(id);}).catch(()=>{});

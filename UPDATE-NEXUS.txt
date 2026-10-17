@@ -1,1 +1,2 @@
-NEXUS rebrand: red identity, NEXUS logo/banner, three server-side owners, new frontend URL. Existing database keys and user data preserved.
+NEXUS-GEMINI-EXPERIENCE-V6
+حدّث ملفات البوت والموقع وأضف GEMINI_API_KEY في Railway Variables فقط.

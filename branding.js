@@ -7,7 +7,7 @@ export function resolveFrontendUrl(value) {
  return /^https:\/\/(?:kivenemad538-collab|nexus-rp538)\.github\.io\/(?:legend_Website|Nexus_Website)$/i.test(current) ? WEBSITE_URL : current;
 }
 
-export const BUILD_ID = 'NEXUS-WELCOME-AUTOROLE-V5';
+export const BUILD_ID = 'NEXUS-GEMINI-EXPERIENCE-V6';
 export const SUPPORT_AUDIO_FILE = 'nexus-support-city-v3.ogg';
 export const BRAND_COLOR = 0xe52b36;
 export function brandText(value){return String(value).replace(/legend/gi,'NEXUS').replace(/ليجند/g,'نكسس').replaceAll('💙','❤️');}
